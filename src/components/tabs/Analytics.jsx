@@ -1,5 +1,6 @@
 import { f$, tPnL, avg } from "../../lib/calc";
-import { MONTH_NAMES } from "../../lib/constants";
+import { MONTH_NAMES, DAYS } from "../../lib/constants";
+import { winLossStats } from "../charts/chartUtils";
 
 export default function Analytics({ trades, totalAll, winRate, grossW, grossL, byDay, byWeek, byMonth, setCalYear, setCalMonth, setTab }) {
   const byYear = trades.reduce((acc, t) => {
@@ -17,6 +18,44 @@ export default function Analytics({ trades, totalAll, winRate, grossW, grossL, b
     }
     return acc;
   }, {});
+
+  // ── Key statistics (all-time) ──
+  const pnls = trades.map(tPnL);
+  const total = trades.length;
+  const winsArr = pnls.filter((p) => p > 0);
+  const lossArr = pnls.filter((p) => p < 0);
+  const avgWin = winsArr.length ? winsArr.reduce((a, b) => a + b, 0) / winsArr.length : 0;
+  const avgLoss = lossArr.length ? Math.abs(lossArr.reduce((a, b) => a + b, 0) / lossArr.length) : 0;
+  const expectancy = total ? (winsArr.length / total) * avgWin - (lossArr.length / total) * avgLoss : 0;
+  const largestWin = pnls.length ? Math.max(...pnls, 0) : 0;
+  const largestLoss = pnls.length ? Math.min(...pnls, 0) : 0;
+  const payoff = avgLoss > 0 ? (avgWin / avgLoss).toFixed(2) : "—";
+  const rrTrades = trades.filter((t) => t.rr);
+  const avgRR = rrTrades.length ? (rrTrades.reduce((s, t) => s + (t.rr || 0), 0) / rrTrades.length).toFixed(2) : "—";
+  const dowPnl = {};
+  trades.forEach((t) => {
+    const d = new Date(t.date + "T00:00:00").getDay();
+    dowPnl[d] = (dowPnl[d] || 0) + tPnL(t);
+  });
+  const dowEntries = Object.entries(dowPnl);
+  const bestDow = dowEntries.length ? dowEntries.reduce((a, b) => (b[1] > a[1] ? b : a)) : null;
+  const worstDow = dowEntries.length ? dowEntries.reduce((a, b) => (b[1] < a[1] ? b : a)) : null;
+  const { maxWin, maxLoss } = winLossStats(trades);
+
+  const keyStats = [
+    { l: "Expectancy / trade", v: total ? f$(expectancy) : "—", c: expectancy >= 0 ? "#16a34a" : "#dc2626" },
+    { l: "Avg Win", v: winsArr.length ? `+$${avgWin.toFixed(0)}` : "—", c: "#16a34a" },
+    { l: "Avg Loss", v: lossArr.length ? `-$${avgLoss.toFixed(0)}` : "—", c: "#dc2626" },
+    { l: "Payoff Ratio", v: payoff, c: "#5b52e0" },
+    { l: "Avg R:R", v: avgRR === "—" ? "—" : `1:${avgRR}`, c: "#7c3aed" },
+    { l: "Largest Win", v: largestWin > 0 ? `+$${largestWin.toFixed(0)}` : "—", c: "#16a34a" },
+    { l: "Largest Loss", v: largestLoss < 0 ? `-$${Math.abs(largestLoss).toFixed(0)}` : "—", c: "#dc2626" },
+    { l: "Best Weekday", v: bestDow ? DAYS[bestDow[0]] : "—", c: "#16a34a" },
+    { l: "Worst Weekday", v: worstDow ? DAYS[worstDow[0]] : "—", c: "#dc2626" },
+    { l: "Max Win Streak", v: `${maxWin}W`, c: "#16a34a" },
+    { l: "Max Loss Streak", v: `${maxLoss}L`, c: "#dc2626" },
+    { l: "Total Trades", v: total, c: "#0f172a" },
+  ];
 
   return (
     <>
@@ -45,6 +84,18 @@ export default function Analytics({ trades, totalAll, winRate, grossW, grossL, b
             <div style={{ fontSize: 18, fontWeight: 700, color: s.c }}>{s.v}</div>
           </div>
         ))}
+      </div>
+
+      <div className="sc" style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 9, color: "#64748b", marginBottom: 12, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 }}>Key Statistics</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10 }}>
+          {keyStats.map((s) => (
+            <div key={s.l} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 10, color: "#64748b", marginBottom: 4 }}>{s.l}</div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: s.c, fontVariantNumeric: "tabular-nums" }}>{s.v}</div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {Object.keys(byYear).length > 0 && (
