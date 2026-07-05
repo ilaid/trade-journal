@@ -13,20 +13,20 @@ export default function TradeModal({
       <div className="mbox">
         <div style={{ padding: "20px 24px 0", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 17, fontWeight: 800, color: "#f9fafb" }}>{editId ? "Edit Trade" : form.isHistorical ? "⏪ Backtest" : "Post-Trade Reflection"}</div>
-            <div style={{ fontSize: 10, color: "#374151", marginTop: 2 }}>Step {step} of 4</div>
+            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 17, fontWeight: 800, color: "#0f172a" }}>{editId ? "Edit Trade" : form.isHistorical ? "⏪ Backtest" : "Post-Trade Reflection"}</div>
+            <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>Step {step} of 4</div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#374151", cursor: "pointer", fontSize: 22, lineHeight: 1 }}>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: 22, lineHeight: 1 }}>
             ×
           </button>
         </div>
-        <div style={{ height: 2, background: "#1e2635", margin: "12px 24px 18px" }}>
-          <div style={{ height: "100%", background: "linear-gradient(90deg,#3b82f6,#8b5cf6)", width: `${(step / 4) * 100}%`, borderRadius: 1, transition: "width .4s" }} />
+        <div style={{ height: 2, background: "#e2e8f0", margin: "12px 24px 18px" }}>
+          <div style={{ height: "100%", background: "linear-gradient(90deg,#5b52e0,#7c3aed)", width: `${(step / 4) * 100}%`, borderRadius: 1, transition: "width .4s" }} />
         </div>
         <div style={{ padding: "0 24px 24px" }}>
           {step === 1 && (
             <>
-              <div style={{ fontSize: 9, color: "#4b5563", marginBottom: 12, textTransform: "uppercase" }}>Trade Details</div>
+              <div style={{ fontSize: 9, color: "#64748b", marginBottom: 12, textTransform: "uppercase" }}>Trade Details</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
                 <div>
                   <span className="fl">Date</span>
@@ -50,14 +50,14 @@ export default function TradeModal({
                     {i}
                   </button>
                 ))}
-                <div style={{ width: 1, background: "#1e2635", margin: "0 3px" }} />
+                <div style={{ width: 1, background: "#e2e8f0", margin: "0 3px" }} />
                 {(CT[form.instrument] || []).map((ct) => (
                   <button key={ct.id} className={`pill${form.contractTypeId === ct.id ? " on" : ""}`} onClick={() => set("contractTypeId", ct.id)}>
                     {ct.label}
                     <span style={{ fontSize: 9, color: "#555", marginLeft: 3 }}>${ct.tv}/tick</span>
                   </button>
                 ))}
-                <div style={{ width: 1, background: "#1e2635", margin: "0 3px" }} />
+                <div style={{ width: 1, background: "#e2e8f0", margin: "0 3px" }} />
                 {DIRS.map((d) => (
                   <button key={d} className={`pill${form.direction === d ? (d === "Long" ? " g" : " r") : ""}`} onClick={() => set("direction", d)}>
                     {d}
@@ -87,9 +87,9 @@ export default function TradeModal({
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7 }}>
                   <span className="fl" style={{ marginBottom: 0 }}>
-                    Exits {form.exits.length > 1 && <span style={{ color: "#8b5cf6" }}>({form.exits.length} partial)</span>}
+                    Exits {form.exits.length > 1 && <span style={{ color: "#7c3aed" }}>({form.exits.length} partial)</span>}
                   </span>
-                  <button onClick={addExit} style={{ background: "none", border: "1px solid #1e2635", borderRadius: 5, color: "#6b7280", cursor: "pointer", fontSize: 11, padding: "3px 10px", fontFamily: "'Azeret Mono',monospace" }}>
+                  <button onClick={addExit} style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: 5, color: "#64748b", cursor: "pointer", fontSize: 11, padding: "3px 10px", fontFamily: "'Inter',system-ui,sans-serif" }}>
                     + Split
                   </button>
                 </div>
@@ -105,7 +105,7 @@ export default function TradeModal({
                     </div>
                     <div style={{ paddingTop: i === 0 ? 18 : 0 }}>
                       {form.exits.length > 1 && (
-                        <button onClick={() => removeExit(i)} style={{ background: "none", border: "none", color: "#374151", cursor: "pointer", fontSize: 14, padding: "7px 2px" }}>
+                        <button onClick={() => removeExit(i)} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: 14, padding: "7px 2px" }}>
                           ✕
                         </button>
                       )}
@@ -113,18 +113,18 @@ export default function TradeModal({
                   </div>
                 ))}
                 {!contractsOk && form.exits.length > 1 && (
-                  <div style={{ fontSize: 10, color: "#f59e0b" }}>
+                  <div style={{ fontSize: 10, color: "#d97706" }}>
                     ⚠ Exits ({usedContracts}) ≠ Total ({form.totalContracts})
                   </div>
                 )}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
                 {[
-                  { l: "P&L", v: totalPnL_form !== 0 ? f$(totalPnL_form) : "—", c: totalPnL_form === 0 ? "#374151" : totalPnL_form > 0 ? "#00c07a" : "#ef4444" },
-                  { l: "R:R", v: form.rr !== null ? `1:${form.rr}` : "—", c: form.rr === null ? "#374151" : form.rr >= 1 ? "#00c07a" : "#ef4444" },
+                  { l: "P&L", v: totalPnL_form !== 0 ? f$(totalPnL_form) : "—", c: totalPnL_form === 0 ? "#94a3b8" : totalPnL_form > 0 ? "#16a34a" : "#dc2626" },
+                  { l: "R:R", v: form.rr !== null ? `1:${form.rr}` : "—", c: form.rr === null ? "#94a3b8" : form.rr >= 1 ? "#16a34a" : "#dc2626" },
                 ].map((s) => (
-                  <div key={s.l} style={{ background: "#111827", border: `1px solid ${s.c}33`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 10, color: "#4b5563" }}>{s.l}</span>
+                  <div key={s.l} style={{ background: "#f1f5f9", border: `1px solid ${s.c}33`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 10, color: "#64748b" }}>{s.l}</span>
                     <span style={{ fontSize: 17, fontWeight: 700, color: s.c }}>{s.v}</span>
                   </div>
                 ))}
@@ -138,7 +138,7 @@ export default function TradeModal({
                     <button
                       key={ev.id}
                       onClick={() => toggleEvent(ev.id)}
-                      style={{ padding: "5px 10px", borderRadius: 5, cursor: "pointer", fontSize: 11, fontFamily: "'Azeret Mono',monospace", border: `1px solid ${form.events.includes(ev.id) ? ev.color : "#1e2635"}`, background: form.events.includes(ev.id) ? ev.bg : "transparent", color: form.events.includes(ev.id) ? ev.color : "#555" }}
+                      style={{ padding: "5px 10px", borderRadius: 5, cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif", border: `1px solid ${form.events.includes(ev.id) ? ev.color : "#e2e8f0"}`, background: form.events.includes(ev.id) ? ev.bg : "transparent", color: form.events.includes(ev.id) ? ev.color : "#555" }}
                       title={ev.desc}
                     >
                       {ev.label}
@@ -154,7 +154,7 @@ export default function TradeModal({
                   <button
                     key={tag.id}
                     onClick={() => toggleTag(tag.name)}
-                    style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${form.tags.includes(tag.name) ? tag.color : "#1e2635"}`, background: form.tags.includes(tag.name) ? `${tag.color}22` : "transparent", color: form.tags.includes(tag.name) ? tag.color : "#4b5563", cursor: "pointer", fontSize: 11, fontFamily: "'Azeret Mono',monospace" }}
+                    style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${form.tags.includes(tag.name) ? tag.color : "#e2e8f0"}`, background: form.tags.includes(tag.name) ? `${tag.color}22` : "transparent", color: form.tags.includes(tag.name) ? tag.color : "#64748b", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}
                   >
                     {tag.name}
                   </button>
@@ -165,7 +165,7 @@ export default function TradeModal({
 
           {step === 2 && (
             <>
-              <div style={{ fontSize: 9, color: "#4b5563", marginBottom: 14, textTransform: "uppercase" }}>Psychology</div>
+              <div style={{ fontSize: 9, color: "#64748b", marginBottom: 14, textTransform: "uppercase" }}>Psychology</div>
               {[
                 { k: "emotion_before", l: "Before entry" },
                 { k: "emotion_during", l: "During trade" },
@@ -205,7 +205,7 @@ export default function TradeModal({
 
           {step === 3 && (
             <>
-              <div style={{ fontSize: 9, color: "#4b5563", marginBottom: 14, textTransform: "uppercase" }}>Reflection</div>
+              <div style={{ fontSize: 9, color: "#64748b", marginBottom: 14, textTransform: "uppercase" }}>Reflection</div>
               {[
                 { k: "what_went_well", l: "✅ What went well?", p: "Execution, patience…" },
                 { k: "what_to_improve", l: "📈 What to improve?", p: "Timing, sizing…" },
@@ -222,15 +222,15 @@ export default function TradeModal({
                   <ScreenshotUploader tradeId={editId} />
                 </div>
               ) : (
-                <div style={{ marginTop: 16, fontSize: 11, color: "#374151" }}>Save this trade first, then reopen it to attach chart screenshots.</div>
+                <div style={{ marginTop: 16, fontSize: 11, color: "#94a3b8" }}>Save this trade first, then reopen it to attach chart screenshots.</div>
               )}
             </>
           )}
 
           {step === 4 && (
             <>
-              <div style={{ fontSize: 9, color: "#4b5563", marginBottom: 12, textTransform: "uppercase" }}>Review & Save</div>
-              <div style={{ background: "#111827", borderRadius: 12, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 9, color: "#64748b", marginBottom: 12, textTransform: "uppercase" }}>Review & Save</div>
+              <div style={{ background: "#f1f5f9", borderRadius: 12, padding: 16, marginBottom: 12 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
                   {[
                     ["Date/Time", `${form.date} ${form.time}`],
@@ -243,28 +243,28 @@ export default function TradeModal({
                     ["R:R", form.rr !== null ? `1:${form.rr}` : "—"],
                   ].map(([l, v]) => (
                     <div key={l}>
-                      <div style={{ fontSize: 9, color: "#4b5563" }}>{l}</div>
-                      <div style={{ fontSize: 12, color: "#e5e7eb", fontWeight: 500 }}>{v}</div>
+                      <div style={{ fontSize: 9, color: "#64748b" }}>{l}</div>
+                      <div style={{ fontSize: 12, color: "#1a1c2e", fontWeight: 500 }}>{v}</div>
                     </div>
                   ))}
                 </div>
                 {form.exits.filter((e) => e.exitPrice).length > 0 && (
-                  <div style={{ borderTop: "1px solid #1e2635", paddingTop: 10, marginBottom: 10 }}>
-                    <div style={{ fontSize: 9, color: "#4b5563", marginBottom: 6 }}>EXITS</div>
+                  <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 10, marginBottom: 10 }}>
+                    <div style={{ fontSize: 9, color: "#64748b", marginBottom: 6 }}>EXITS</div>
                     {form.exits
                       .filter((e) => e.exitPrice)
                       .map((l, i) => (
                         <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
-                          <span style={{ color: "#6b7280" }}>
+                          <span style={{ color: "#64748b" }}>
                             Exit {i + 1}: @{l.exitPrice} × {l.contracts}c
                           </span>
-                          <span style={{ color: (l.pnl || 0) >= 0 ? "#00c07a" : "#ef4444", fontWeight: 600 }}>{f$(l.pnl || 0)}</span>
+                          <span style={{ color: (l.pnl || 0) >= 0 ? "#16a34a" : "#dc2626", fontWeight: 600 }}>{f$(l.pnl || 0)}</span>
                         </div>
                       ))}
                   </div>
                 )}
                 {form.events.length > 0 && (
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #1e2635", marginBottom: 8 }}>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #e2e8f0", marginBottom: 8 }}>
                     {form.events.map((eid) => {
                       const ev = EVENTS.find((e) => e.id === eid);
                       return ev ? (
@@ -276,11 +276,11 @@ export default function TradeModal({
                   </div>
                 )}
                 {form.tags.length > 0 && (
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #1e2635" }}>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #e2e8f0" }}>
                     {form.tags.map((t) => {
                       const tag = tags.find((x) => x.name === t);
                       return (
-                        <span key={t} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, border: `1px solid ${tag?.color || "#3b82f6"}`, color: tag?.color || "#60a5fa", background: `${tag?.color || "#3b82f6"}15` }}>
+                        <span key={t} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, border: `1px solid ${tag?.color || "#5b52e0"}`, color: tag?.color || "#5b52e0", background: `${tag?.color || "#5b52e0"}15` }}>
                           {t}
                         </span>
                       );
@@ -291,7 +291,7 @@ export default function TradeModal({
             </>
           )}
 
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18, paddingTop: 14, borderTop: "1px solid #111827" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18, paddingTop: 14, borderTop: "1px solid #f1f5f9" }}>
             {step > 1 ? (
               <button className="pill" onClick={() => setStep((s) => s - 1)}>
                 ← Back

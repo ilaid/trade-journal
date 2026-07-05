@@ -5,7 +5,7 @@ export default function TagModal({ newTag, setNewTag, onCreate, onClose }) {
     <div className="overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="mbox" style={{ maxWidth: 380 }}>
         <div style={{ padding: "22px 24px" }}>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 800, color: "#f9fafb", marginBottom: 18 }}>Create Setup Tag</div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 15, fontWeight: 800, color: "#0f172a", marginBottom: 18 }}>Create Setup Tag</div>
           <span className="fl">Name</span>
           <input className="inp" style={{ marginBottom: 12 }} value={newTag.name} onChange={(e) => setNewTag((n) => ({ ...n, name: e.target.value }))} placeholder="e.g. Opening Drive…" />
           <span className="fl" style={{ marginBottom: 8 }}>

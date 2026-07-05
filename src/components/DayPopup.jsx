@@ -12,19 +12,19 @@ export default function DayPopup({ dateKey, trades, tags, instrumentMeta, dayNot
       <div className="mbox" style={{ maxWidth: 640 }}>
         <div style={{ padding: "20px 24px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 800, color: "#f9fafb" }}>{label}</div>
+            <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 800, color: "#0f172a" }}>{label}</div>
             {dayTrades.length > 0 && (
-              <div style={{ fontSize: 13, marginTop: 3, color: dayPnl >= 0 ? "#00c07a" : "#ef4444", fontWeight: 700 }}>
+              <div style={{ fontSize: 13, marginTop: 3, color: dayPnl >= 0 ? "#16a34a" : "#dc2626", fontWeight: 700 }}>
                 {f$(dayPnl)} · {dayTrades.length} trade{dayTrades.length > 1 ? "s" : ""}
               </div>
             )}
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#374151", cursor: "pointer", fontSize: 24, padding: "4px 8px" }}>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#94a3b8", cursor: "pointer", fontSize: 24, padding: "4px 8px" }}>
             ×
           </button>
         </div>
         <div style={{ padding: "14px 24px 0" }}>
-          <div style={{ fontSize: 9, color: "#4b5563", marginBottom: 6, textTransform: "uppercase" }}>📝 Day Note</div>
+          <div style={{ fontSize: 9, color: "#64748b", marginBottom: 6, textTransform: "uppercase" }}>📝 Day Note</div>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
             <textarea
               value={dayNoteVal}
@@ -46,21 +46,21 @@ export default function DayPopup({ dateKey, trades, tags, instrumentMeta, dayNot
         </div>
         <div style={{ padding: "14px 24px 22px" }}>
           {dayTrades.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "20px 0", color: "#374151", fontSize: 12 }}>No trades on this day</div>
+            <div style={{ textAlign: "center", padding: "20px 0", color: "#94a3b8", fontSize: 12 }}>No trades on this day</div>
           ) : (
             dayTrades.map((t) => {
               const pnl = tPnL(t);
               return (
-                <div key={t.id} style={{ background: "#111827", borderRadius: 12, padding: 14, marginBottom: 10, border: "1px solid #1e2635" }}>
+                <div key={t.id} style={{ background: "#f1f5f9", borderRadius: 12, padding: 14, marginBottom: 10, border: "1px solid #e2e8f0" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                      <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 4, background: `${instrumentMeta?.[t.instrument]?.color || "#60a5fa"}22`, color: instrumentMeta?.[t.instrument]?.color || "#60a5fa" }}>{t.instrument}</span>
-                      <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 4, background: t.direction === "Long" ? "#052e16" : "#3b0d14", color: t.direction === "Long" ? "#00c07a" : "#ef4444" }}>{t.direction}</span>
+                      <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 4, background: `${instrumentMeta?.[t.instrument]?.color || "#5b52e0"}22`, color: instrumentMeta?.[t.instrument]?.color || "#5b52e0" }}>{t.instrument}</span>
+                      <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 4, background: t.direction === "Long" ? "#dcfce7" : "#fee2e2", color: t.direction === "Long" ? "#16a34a" : "#dc2626" }}>{t.direction}</span>
                       <span style={{ fontSize: 11, color: "#555" }}>{t.time || ""}</span>
                       {(t.tags || []).map((x) => {
                         const tag = tags.find((g) => g.name === x);
                         return (
-                          <span key={x} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, border: `1px solid ${tag?.color || "#3b82f6"}55`, color: tag?.color || "#60a5fa" }}>
+                          <span key={x} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 3, border: `1px solid ${tag?.color || "#5b52e0"}55`, color: tag?.color || "#5b52e0" }}>
                             {x}
                           </span>
                         );
@@ -75,13 +75,13 @@ export default function DayPopup({ dateKey, trades, tags, instrumentMeta, dayNot
                       })}
                     </div>
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <span style={{ fontSize: 17, fontWeight: 700, color: pnl >= 0 ? "#00c07a" : "#ef4444" }}>{f$(pnl)}</span>
+                      <span style={{ fontSize: 17, fontWeight: 700, color: pnl >= 0 ? "#16a34a" : "#dc2626" }}>{f$(pnl)}</span>
                       <button
                         onClick={() => {
                           onDelete(t.id);
                           onClose();
                         }}
-                        style={{ background: "#3b0d14", border: "1px solid #ef4444", borderRadius: 6, color: "#ef4444", cursor: "pointer", fontSize: 10, padding: "3px 8px", fontFamily: "'Azeret Mono',monospace" }}
+                        style={{ background: "#fee2e2", border: "1px solid #dc2626", borderRadius: 6, color: "#dc2626", cursor: "pointer", fontSize: 10, padding: "3px 8px", fontFamily: "'Inter',system-ui,sans-serif" }}
                       >
                         Delete
                       </button>
@@ -95,25 +95,25 @@ export default function DayPopup({ dateKey, trades, tags, instrumentMeta, dayNot
                       ["SL", t.sl || "—"],
                     ].map(([l, v]) => (
                       <div key={l}>
-                        <div style={{ fontSize: 9, color: "#4b5563" }}>{l}</div>
-                        <div style={{ fontSize: 12, color: "#e5e7eb", fontWeight: 600 }}>{v}</div>
+                        <div style={{ fontSize: 9, color: "#64748b" }}>{l}</div>
+                        <div style={{ fontSize: 12, color: "#1a1c2e", fontWeight: 600 }}>{v}</div>
                       </div>
                     ))}
                   </div>
-                  {t.followed_plan !== null && <div style={{ fontSize: 11, color: t.followed_plan ? "#00c07a" : "#ef4444", marginBottom: 4 }}>Plan: {t.followed_plan ? "✓ Followed" : "✗ Not followed"}</div>}
+                  {t.followed_plan !== null && <div style={{ fontSize: 11, color: t.followed_plan ? "#16a34a" : "#dc2626", marginBottom: 4 }}>Plan: {t.followed_plan ? "✓ Followed" : "✗ Not followed"}</div>}
                   {t.what_went_well && (
-                    <div style={{ padding: "7px 10px", background: "#052e16", borderRadius: 6, fontSize: 11, color: "#00c07a", marginBottom: 4 }}>✅ {t.what_went_well}</div>
+                    <div style={{ padding: "7px 10px", background: "#dcfce7", borderRadius: 6, fontSize: 11, color: "#16a34a", marginBottom: 4 }}>✅ {t.what_went_well}</div>
                   )}
                   {t.what_to_improve && (
-                    <div style={{ padding: "7px 10px", background: "#1a120a", borderRadius: 6, fontSize: 11, color: "#f59e0b", marginBottom: 4 }}>📈 {t.what_to_improve}</div>
+                    <div style={{ padding: "7px 10px", background: "#fef3c7", borderRadius: 6, fontSize: 11, color: "#d97706", marginBottom: 4 }}>📈 {t.what_to_improve}</div>
                   )}
-                  {t.notes && <div style={{ padding: "7px 10px", background: "#0d1117", borderRadius: 6, fontSize: 11, color: "#6b7280" }}>{t.notes}</div>}
+                  {t.notes && <div style={{ padding: "7px 10px", background: "#f8fafc", borderRadius: 6, fontSize: 11, color: "#64748b" }}>{t.notes}</div>}
                   <button
                     onClick={() => {
                       onClose();
                       onEdit(t);
                     }}
-                    style={{ marginTop: 8, background: "none", border: "1px solid #1e2635", borderRadius: 6, color: "#4b5563", cursor: "pointer", fontSize: 10, padding: "4px 10px", fontFamily: "'Azeret Mono',monospace" }}
+                    style={{ marginTop: 8, background: "none", border: "1px solid #e2e8f0", borderRadius: 6, color: "#64748b", cursor: "pointer", fontSize: 10, padding: "4px 10px", fontFamily: "'Inter',system-ui,sans-serif" }}
                   >
                     ✏️ Edit
                   </button>

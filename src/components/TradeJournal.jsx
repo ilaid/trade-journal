@@ -422,36 +422,36 @@ export default function TradeJournal({ user, onSignOut }) {
 
   if (dbLoading || !form) {
     return (
-      <div style={{ minHeight: "100vh", background: "#070a0e", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, fontFamily: "'Azeret Mono',monospace" }}>
-        <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#3b82f6", boxShadow: "0 0 12px #3b82f6", animation: "pulse 1s infinite" }} />
-        <div style={{ fontSize: 11, color: "#374151" }}>Loading your trades...</div>
+      <div style={{ minHeight: "100vh", background: "#e7e9f1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, fontFamily: "'Inter',system-ui,sans-serif" }}>
+        <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#5b52e0", boxShadow: "0 0 12px #5b52e0", animation: "pulse 1s infinite" }} />
+        <div style={{ fontSize: 11, color: "#94a3b8" }}>Loading your trades...</div>
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#070a0e", fontFamily: "'Azeret Mono',monospace", color: "#c9d1d9" }}>
+    <div style={{ minHeight: "100vh", background: "#e7e9f1", fontFamily: "'Inter',system-ui,sans-serif", color: "#334155" }}>
       {/* TOP BAR */}
-      <div style={{ borderBottom: "1px solid #111827", padding: "13px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, background: "#070a0e", zIndex: 10 }}>
+      <div style={{ borderBottom: "1px solid #f1f5f9", padding: "13px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, background: "#e7e9f1", zIndex: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#3b82f6", boxShadow: "0 0 8px #3b82f6" }} />
-          <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 800, color: "#f9fafb" }}>TRADE JOURNAL</span>
-          {syncing && <span style={{ fontSize: 9, color: "#374151", animation: "pulse 1s infinite" }}>syncing...</span>}
+          <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#5b52e0", boxShadow: "0 0 8px #5b52e0" }} />
+          <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 800, color: "#0f172a" }}>TRADE JOURNAL</span>
+          {syncing && <span style={{ fontSize: 9, color: "#94a3b8", animation: "pulse 1s infinite" }}>syncing...</span>}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {trades.length > 0 && (
-            <button onClick={() => exportCSV(trades)} style={{ background: "#111827", border: "1px solid #1e2635", borderRadius: 7, color: "#6b7280", padding: "7px 11px", cursor: "pointer", fontSize: 11, fontFamily: "'Azeret Mono',monospace" }}>
+            <button onClick={() => exportCSV(trades)} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 7, color: "#64748b", padding: "7px 11px", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}>
               ↓ CSV
             </button>
           )}
-          <button onClick={() => setModal("import")} style={{ background: "#111827", border: "1px solid #1e2635", borderRadius: 7, color: "#6b7280", padding: "7px 11px", cursor: "pointer", fontSize: 11, fontFamily: "'Azeret Mono',monospace" }}>
+          <button onClick={() => setModal("import")} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 7, color: "#64748b", padding: "7px 11px", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}>
             ↑ Import
           </button>
-          <span style={{ fontSize: 10, color: "#374151", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</span>
-          <button onClick={onSignOut} style={{ background: "none", border: "1px solid #1e2635", borderRadius: 7, color: "#4b5563", padding: "6px 12px", cursor: "pointer", fontSize: 11, fontFamily: "'Azeret Mono',monospace" }}>
+          <span style={{ fontSize: 10, color: "#94a3b8", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</span>
+          <button onClick={onSignOut} style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: 7, color: "#64748b", padding: "6px 12px", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}>
             Sign out
           </button>
-          <button onClick={openBacktest} style={{ background: "linear-gradient(135deg,#1c1340,#2e1065)", border: "1px solid #7c3aed", borderRadius: 8, color: "#a78bfa", padding: "7px 12px", cursor: "pointer", fontSize: 11, fontFamily: "'Azeret Mono',monospace" }}>
+          <button onClick={openBacktest} style={{ background: "linear-gradient(135deg,#ede9fe,#ddd6fe)", border: "1px solid #7c3aed", borderRadius: 8, color: "#7c3aed", padding: "7px 12px", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}>
             ⏪
           </button>
           <button onClick={openAdd} style={{ ...BP, padding: "7px 14px", fontSize: 11 }}>
@@ -461,7 +461,7 @@ export default function TradeJournal({ user, onSignOut }) {
       </div>
 
       {/* NAV */}
-      <div style={{ display: "flex", gap: 2, padding: "10px 24px 0", borderBottom: "1px solid #0d1117", overflowX: "auto" }}>
+      <div style={{ display: "flex", gap: 2, padding: "10px 24px 0", borderBottom: "1px solid #f8fafc", overflowX: "auto" }}>
         {[
           ["dashboard", "📊 Dashboard"],
           ["trades", "📋 Trades"],
@@ -478,6 +478,7 @@ export default function TradeJournal({ user, onSignOut }) {
       <div style={{ padding: "22px 24px", maxWidth: 1100, margin: "0 auto" }}>
         {tab === "dashboard" && (
           <Dashboard
+            trades={trades}
             mPnl={mPnl}
             mWr={mWr}
             mTrades={mTrades}

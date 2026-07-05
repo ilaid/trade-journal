@@ -22,8 +22,8 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", background: "#070a0e", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#3b82f6", boxShadow: "0 0 12px #3b82f6", animation: "pulse 1s infinite" }} />
+      <div style={{ minHeight: "100vh", background: "#e7e9f1", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#5b52e0", boxShadow: "0 0 12px #5b52e0", animation: "pulse 1s infinite" }} />
       </div>
     );
   }

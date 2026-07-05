@@ -61,7 +61,7 @@ export default function ScreenshotUploader({ tradeId }) {
     setShots((s) => s.filter((x) => x.id !== shot.id));
   };
 
-  if (loading) return <div style={{ fontSize: 11, color: "#374151" }}>Loading screenshots…</div>;
+  if (loading) return <div style={{ fontSize: 11, color: "#94a3b8" }}>Loading screenshots…</div>;
 
   return (
     <div>
@@ -69,13 +69,13 @@ export default function ScreenshotUploader({ tradeId }) {
         {shots.map((s) => (
           <div key={s.id} style={{ position: "relative", width: 84, height: 84 }}>
             {urls[s.id] ? (
-              <img src={urls[s.id]} alt={s.file_name} style={{ width: 84, height: 84, objectFit: "cover", borderRadius: 8, border: "1px solid #1e2635" }} />
+              <img src={urls[s.id]} alt={s.file_name} style={{ width: 84, height: 84, objectFit: "cover", borderRadius: 8, border: "1px solid #e2e8f0" }} />
             ) : (
-              <div style={{ width: 84, height: 84, borderRadius: 8, border: "1px solid #1e2635", background: "#111827" }} />
+              <div style={{ width: 84, height: 84, borderRadius: 8, border: "1px solid #e2e8f0", background: "#f1f5f9" }} />
             )}
             <button
               onClick={() => onDelete(s)}
-              style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: "#3b0d14", border: "1px solid #ef4444", color: "#ef4444", cursor: "pointer", fontSize: 11, lineHeight: 1 }}
+              style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", background: "#fee2e2", border: "1px solid #dc2626", color: "#dc2626", cursor: "pointer", fontSize: 11, lineHeight: 1 }}
             >
               ✕
             </button>
@@ -84,13 +84,13 @@ export default function ScreenshotUploader({ tradeId }) {
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
-          style={{ width: 84, height: 84, borderRadius: 8, border: "1px dashed #1e2635", background: "none", color: "#4b5563", cursor: uploading ? "wait" : "pointer", fontSize: 20 }}
+          style={{ width: 84, height: 84, borderRadius: 8, border: "1px dashed #e2e8f0", background: "none", color: "#64748b", cursor: uploading ? "wait" : "pointer", fontSize: 20 }}
         >
           {uploading ? "…" : "+"}
         </button>
         <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={onPick} style={{ display: "none" }} />
       </div>
-      {error && <div style={{ fontSize: 11, color: "#ef4444" }}>{error}</div>}
+      {error && <div style={{ fontSize: 11, color: "#dc2626" }}>{error}</div>}
     </div>
   );
 }
