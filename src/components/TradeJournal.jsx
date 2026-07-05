@@ -10,6 +10,7 @@ import TradeModal from "./TradeModal";
 import TagModal from "./TagModal";
 import ImportModal from "./ImportModal";
 import Dashboard from "./tabs/Dashboard";
+import Calendar from "./tabs/Calendar";
 import TradesList from "./tabs/TradesList";
 import Analytics from "./tabs/Analytics";
 import Setups from "./tabs/Setups";
@@ -464,6 +465,7 @@ export default function TradeJournal({ user, onSignOut }) {
       <div style={{ display: "flex", gap: 2, padding: "10px 24px 0", borderBottom: "1px solid #f8fafc", overflowX: "auto" }}>
         {[
           ["dashboard", "📊 Dashboard"],
+          ["calendar", "📅 Calendar"],
           ["trades", "📋 Trades"],
           ["stats", "📈 Analytics"],
           ["tags", "🏷️ Setups"],
@@ -484,6 +486,16 @@ export default function TradeJournal({ user, onSignOut }) {
             mTrades={mTrades}
             mPf={mPf}
             mAvgRR={mAvgRR}
+            calMonth={calMonth}
+            tags={tags}
+            instrumentMeta={instrumentMeta}
+            openEdit={openEdit}
+            deleteTrade={deleteTrade}
+          />
+        )}
+
+        {tab === "calendar" && (
+          <Calendar
             calYear={calYear}
             calMonth={calMonth}
             navMonth={navMonth}
@@ -495,19 +507,15 @@ export default function TradeJournal({ user, onSignOut }) {
             calDays={calDays}
             todayKey={todayKey}
             openDay={openDay}
-            byDay={byDay}
-            byWeek={byWeek}
-            byMonth={byMonth}
-            tags={tags}
-            instrumentMeta={instrumentMeta}
-            openEdit={openEdit}
-            deleteTrade={deleteTrade}
+            mPnl={mPnl}
+            mTrades={mTrades}
+            mWr={mWr}
           />
         )}
 
         {tab === "trades" && <TradesList trades={trades} tags={tags} instrumentMeta={instrumentMeta} openEdit={openEdit} deleteTrade={deleteTrade} />}
 
-        {tab === "stats" && <Analytics trades={trades} totalAll={totalAll} winRate={winRate} grossW={grossW} grossL={grossL} byMonth={byMonth} setCalYear={setCalYear} setCalMonth={setCalMonth} setTab={setTab} />}
+        {tab === "stats" && <Analytics trades={trades} totalAll={totalAll} winRate={winRate} grossW={grossW} grossL={grossL} byDay={byDay} byWeek={byWeek} byMonth={byMonth} setCalYear={setCalYear} setCalMonth={setCalMonth} setTab={setTab} />}
 
         {tab === "tags" && <Setups tagStats={tagStats} setModal={setModal} deleteTag={deleteTag} />}
 

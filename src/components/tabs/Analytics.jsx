@@ -1,7 +1,7 @@
-import { f$, tPnL } from "../../lib/calc";
+import { f$, tPnL, avg } from "../../lib/calc";
 import { MONTH_NAMES } from "../../lib/constants";
 
-export default function Analytics({ trades, totalAll, winRate, grossW, grossL, byMonth, setCalYear, setCalMonth, setTab }) {
+export default function Analytics({ trades, totalAll, winRate, grossW, grossL, byDay, byWeek, byMonth, setCalYear, setCalMonth, setTab }) {
   const byYear = trades.reduce((acc, t) => {
     const y = t.date.slice(0, 4);
     if (!acc[y]) acc[y] = { pnl: 0, wins: 0, losses: 0, trades: 0, grossW: 0, grossL: 0 };
@@ -30,6 +30,19 @@ export default function Analytics({ trades, totalAll, winRate, grossW, grossL, b
           <div key={s.l} className="sc" style={{ textAlign: "center", padding: "12px 8px" }}>
             <div style={{ fontSize: 9, color: "#64748b", marginBottom: 4, textTransform: "uppercase" }}>{s.l}</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: s.c }}>{s.v}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
+        {[
+          { l: "Avg Daily", v: `$${avg(byDay || {})}`, c: parseFloat(avg(byDay || {})) >= 0 ? "#16a34a" : "#dc2626" },
+          { l: "Avg Weekly", v: `$${avg(byWeek || {})}`, c: parseFloat(avg(byWeek || {})) >= 0 ? "#16a34a" : "#dc2626" },
+          { l: "Avg Monthly", v: `$${avg(byMonth || {})}`, c: parseFloat(avg(byMonth || {})) >= 0 ? "#16a34a" : "#dc2626" },
+        ].map((s) => (
+          <div key={s.l} className="sc" style={{ textAlign: "center", padding: "12px 8px" }}>
+            <div style={{ fontSize: 9, color: "#64748b", marginBottom: 4, textTransform: "uppercase" }}>{s.l}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: s.c }}>{s.v}</div>
           </div>
         ))}
       </div>
