@@ -22,8 +22,8 @@ export default function TagModal({ newTag, setNewTag, onCreate, onClose }) {
             </button>
             <button
               style={BP}
-              onClick={() => {
-                onCreate();
+              onClick={async () => {
+                await onCreate();
                 onClose();
               }}
             >

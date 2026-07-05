@@ -1,7 +1,6 @@
-import { CT } from "./constants";
-
-export const gs = (i, c) => {
-  const l = CT[i] || CT.ES;
+export const gs = (CT, i, c) => {
+  const keys = Object.keys(CT);
+  const l = CT[i] || CT[keys[0]] || [];
   return l.find((x) => x.id === c) || l[0];
 };
 
@@ -41,33 +40,39 @@ export const tPnL = (t) => (t.exits?.length > 0 ? t.exits.reduce((s, l) => s + (
 
 export const f$ = (v) => `${v >= 0 ? "+" : "-"}$${Math.abs(v).toFixed(2)}`;
 
-export const be = () => ({ id: Date.now() + Math.random(), exitPrice: "", contracts: "", pnl: null });
+// id is a client-only temp key (used as a React list key / to correlate rows
+// while editing); the DB assigns the real trade_exits.id on save.
+export const be = () => ({ id: crypto.randomUUID(), exitPrice: "", contracts: "", pnl: null });
 
 export const avg = (obj) => {
   const vs = Object.values(obj);
   return vs.length ? (vs.reduce((a, b) => a + b, 0) / vs.length).toFixed(2) : "0.00";
 };
 
-export const BLANK = () => ({
-  isHistorical: false,
-  date: todayStr(),
-  time: nowTime(),
-  instrument: "ES",
-  contractTypeId: "ES_mini",
-  direction: "Long",
-  entryPrice: "",
-  totalContracts: "1",
-  exits: [be()],
-  sl: "",
-  tp: "",
-  rr: null,
-  tags: [],
-  events: [],
-  emotion_before: "",
-  emotion_during: "",
-  followed_plan: null,
-  mistakes: [],
-  what_went_well: "",
-  what_to_improve: "",
-  notes: "",
-});
+export const BLANK = (CT, INST) => {
+  const instrument = INST?.[0] || "ES";
+  const contractTypeId = CT?.[instrument]?.[0]?.id ?? null;
+  return {
+    isHistorical: false,
+    date: todayStr(),
+    time: nowTime(),
+    instrument,
+    contractTypeId,
+    direction: "Long",
+    entryPrice: "",
+    totalContracts: "1",
+    exits: [be()],
+    sl: "",
+    tp: "",
+    rr: null,
+    tags: [],
+    events: [],
+    emotion_before: "",
+    emotion_during: "",
+    followed_plan: null,
+    mistakes: [],
+    what_went_well: "",
+    what_to_improve: "",
+    notes: "",
+  };
+};

@@ -1,6 +1,6 @@
 import TRow from "../TRow";
 
-export default function TradesList({ trades, tags, openEdit, deleteTrade }) {
+export default function TradesList({ trades, tags, instrumentMeta, openEdit, deleteTrade }) {
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
@@ -11,7 +11,7 @@ export default function TradesList({ trades, tags, openEdit, deleteTrade }) {
           <div style={{ fontSize: 36 }}>📋</div>
         </div>
       ) : (
-        trades.map((t) => <TRow key={t.id} trade={t} tags={tags} onEdit={openEdit} onDelete={deleteTrade} />)
+        trades.map((t) => <TRow key={t.id} trade={t} tags={tags} instrumentMeta={instrumentMeta} onEdit={openEdit} onDelete={deleteTrade} />)
       )}
     </>
   );

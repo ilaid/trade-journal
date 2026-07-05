@@ -1,15 +1,18 @@
--- Trade Journal — Supabase schema (target / fresh-install)
--- Run this once in the Supabase SQL editor for a brand-new project.
+-- Trade Journal — migration 0002: normalize schema
 --
--- If you already ran the older single-JSONB-blob version of this file against
--- a live project, do NOT re-run this file — use sql/0002_normalize_schema.sql
--- and sql/0003_screenshots.sql instead, which upgrade in place without losing data.
+-- Upgrades an EXISTING live project (created from the original single-JSONB
+-- version of sql/schema.sql: trades.data jsonb, tags.data jsonb) to the
+-- normalized relational schema. Safe to run once. Does NOT drop any data —
+-- the old trades/tags tables are renamed to *_legacy, never dropped, so this
+-- is reversible by simply reverting the app code back to reading *_legacy.
+--
+-- Recommended: run this against a Supabase branch first (mcp Supabase
+-- create_branch / the Supabase dashboard) and verify the count/sum checks at
+-- the bottom before running it against production.
 
--- ── Reference data: instruments & contracts ─────────────────────────────────
--- user_id = null means "global/built-in", maintained via migration (service role).
--- Regular users can only ever insert rows with user_id = auth.uid(), so they can
--- add their own custom instruments but never mutate the built-in list.
+begin;
 
+-- ── 1. Reference data: instruments & contracts ──────────────────────────────
 create table if not exists public.instruments (
   id bigint generated always as identity primary key,
   user_id uuid references auth.users(id) on delete cascade,
@@ -27,6 +30,7 @@ create unique index if not exists instruments_user_symbol_uq on public.instrumen
 create table if not exists public.contracts (
   id bigint generated always as identity primary key,
   instrument_id bigint not null references public.instruments(id) on delete cascade,
+  legacy_code text, -- temporary, used only to backfill trades.contractTypeId below; dropped at the end of this migration
   label text not null,
   tick_size numeric not null check (tick_size > 0),
   tick_value numeric not null check (tick_value > 0),
@@ -62,10 +66,6 @@ create policy "contracts_delete_own" on public.contracts for delete using (
   exists (select 1 from public.instruments i where i.id = contracts.instrument_id
           and i.user_id = auth.uid()));
 
--- Seed built-in instruments + contracts.
--- NOTE: tick sizes/values below are a starting point — verify against exchange
--- specs before relying on them for real P&L (CL/GC/YM/RTY/MYM/M2K/MCL/MGC/6E
--- in particular have not been used in production by this app yet).
 insert into public.instruments (symbol, label, asset_class, exchange, color) values
   ('ES', 'E-mini S&P 500', 'futures', 'CME', '#60a5fa'),
   ('NQ', 'E-mini Nasdaq-100', 'futures', 'CME', '#a78bfa'),
@@ -76,28 +76,32 @@ insert into public.instruments (symbol, label, asset_class, exchange, color) val
   ('6E', 'Euro FX', 'futures', 'CME', '#22d3ee')
 on conflict do nothing;
 
-insert into public.contracts (instrument_id, label, tick_size, tick_value)
-select i.id, c.label, c.tick_size, c.tick_value from public.instruments i
+insert into public.contracts (instrument_id, legacy_code, label, tick_size, tick_value)
+select i.id, c.legacy_code, c.label, c.tick_size, c.tick_value from public.instruments i
 join (values
-  ('ES', 'E-mini ES', 0.25, 12.5),
-  ('ES', 'Micro MES', 0.25, 1.25),
-  ('NQ', 'E-mini NQ', 0.25, 5.0),
-  ('NQ', 'Micro MNQ', 0.25, 0.5),
-  ('CL', 'E-mini CL', 0.01, 10.0),
-  ('CL', 'Micro MCL', 0.01, 1.0),
-  ('GC', 'E-mini GC', 0.10, 10.0),
-  ('GC', 'Micro MGC', 0.10, 1.0),
-  ('YM', 'E-mini YM', 1.0, 5.0),
-  ('YM', 'Micro MYM', 1.0, 0.5),
-  ('RTY', 'E-mini RTY', 0.10, 5.0),
-  ('RTY', 'Micro M2K', 0.10, 0.5),
-  ('6E', 'E-mini 6E', 0.00005, 6.25)
-) as c(symbol, label, tick_size, tick_value) on c.symbol = i.symbol
+  ('ES', 'ES_mini', 'E-mini ES', 0.25, 12.5),
+  ('ES', 'MES_micro', 'Micro MES', 0.25, 1.25),
+  ('NQ', 'NQ_mini', 'E-mini NQ', 0.25, 5.0),
+  ('NQ', 'MNQ_micro', 'Micro MNQ', 0.25, 0.5),
+  ('CL', 'CL_mini', 'E-mini CL', 0.01, 10.0),
+  ('CL', 'MCL_micro', 'Micro MCL', 0.01, 1.0),
+  ('GC', 'GC_mini', 'E-mini GC', 0.10, 10.0),
+  ('GC', 'MGC_micro', 'Micro MGC', 0.10, 1.0),
+  ('YM', 'YM_mini', 'E-mini YM', 1.0, 5.0),
+  ('YM', 'MYM_micro', 'Micro MYM', 1.0, 0.5),
+  ('RTY', 'RTY_mini', 'E-mini RTY', 0.10, 5.0),
+  ('RTY', 'M2K_micro', 'Micro M2K', 0.10, 0.5),
+  ('6E', '6E_mini', 'E-mini 6E', 0.00005, 6.25)
+) as c(symbol, legacy_code, label, tick_size, tick_value) on c.symbol = i.symbol
 where i.user_id is null
 on conflict do nothing;
 
--- ── Trades ───────────────────────────────────────────────────────────────────
-create table if not exists public.trades (
+-- ── 2. Rename old tables out of the way (never dropped) ─────────────────────
+alter table if exists public.trades rename to trades_legacy;
+alter table if exists public.tags rename to tags_legacy;
+
+-- ── 3. Create new normalized tables ──────────────────────────────────────────
+create table public.trades (
   id bigint primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
   is_historical boolean not null default false,
@@ -126,10 +130,10 @@ create table if not exists public.trades (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create index if not exists trades_user_id_idx on public.trades(user_id);
-create index if not exists trades_user_date_idx on public.trades(user_id, trade_date);
-create index if not exists trades_user_instrument_idx on public.trades(user_id, instrument_id);
-create unique index if not exists trades_user_external_id_uq on public.trades(user_id, broker, external_id)
+create index trades_user_id_idx on public.trades(user_id);
+create index trades_user_date_idx on public.trades(user_id, trade_date);
+create index trades_user_instrument_idx on public.trades(user_id, instrument_id);
+create unique index trades_user_external_id_uq on public.trades(user_id, broker, external_id)
   where external_id is not null;
 
 alter table public.trades enable row level security;
@@ -138,8 +142,7 @@ create policy "trades_insert_own" on public.trades for insert with check (auth.u
 create policy "trades_update_own" on public.trades for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "trades_delete_own" on public.trades for delete using (auth.uid() = user_id);
 
--- ── Trade exits (partial exits) ──────────────────────────────────────────────
-create table if not exists public.trade_exits (
+create table public.trade_exits (
   id bigint generated always as identity primary key,
   trade_id bigint not null references public.trades(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -149,8 +152,8 @@ create table if not exists public.trade_exits (
   exit_order integer not null default 0,
   created_at timestamptz not null default now()
 );
-create index if not exists trade_exits_trade_id_idx on public.trade_exits(trade_id);
-create index if not exists trade_exits_user_id_idx on public.trade_exits(user_id);
+create index trade_exits_trade_id_idx on public.trade_exits(trade_id);
+create index trade_exits_user_id_idx on public.trade_exits(user_id);
 
 alter table public.trade_exits enable row level security;
 create policy "trade_exits_select_own" on public.trade_exits for select using (auth.uid() = user_id);
@@ -158,8 +161,7 @@ create policy "trade_exits_insert_own" on public.trade_exits for insert with che
 create policy "trade_exits_update_own" on public.trade_exits for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "trade_exits_delete_own" on public.trade_exits for delete using (auth.uid() = user_id);
 
--- ── Tags (relational — user-created, renamable, deletable) ───────────────────
-create table if not exists public.tags (
+create table public.tags (
   id bigint generated always as identity primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
@@ -167,7 +169,7 @@ create table if not exists public.tags (
   created_at timestamptz not null default now(),
   unique (user_id, name)
 );
-create index if not exists tags_user_id_idx on public.tags(user_id);
+create index tags_user_id_idx on public.tags(user_id);
 
 alter table public.tags enable row level security;
 create policy "tags_select_own" on public.tags for select using (auth.uid() = user_id);
@@ -175,73 +177,102 @@ create policy "tags_insert_own" on public.tags for insert with check (auth.uid()
 create policy "tags_update_own" on public.tags for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "tags_delete_own" on public.tags for delete using (auth.uid() = user_id);
 
-create table if not exists public.trade_tags (
+create table public.trade_tags (
   trade_id bigint not null references public.trades(id) on delete cascade,
   tag_id bigint not null references public.tags(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
   primary key (trade_id, tag_id)
 );
-create index if not exists trade_tags_tag_id_idx on public.trade_tags(tag_id);
-create index if not exists trade_tags_user_id_idx on public.trade_tags(user_id);
+create index trade_tags_tag_id_idx on public.trade_tags(tag_id);
+create index trade_tags_user_id_idx on public.trade_tags(user_id);
 
 alter table public.trade_tags enable row level security;
 create policy "trade_tags_select_own" on public.trade_tags for select using (auth.uid() = user_id);
 create policy "trade_tags_insert_own" on public.trade_tags for insert with check (auth.uid() = user_id);
 create policy "trade_tags_delete_own" on public.trade_tags for delete using (auth.uid() = user_id);
 
--- ── Day notes ─────────────────────────────────────────────────────────────────
-create table if not exists public.day_notes (
-  user_id uuid not null references auth.users(id) on delete cascade,
-  date date not null,
-  note text not null,
-  updated_at timestamptz not null default now(),
-  primary key (user_id, date)
-);
+alter table public.day_notes add column if not exists updated_at timestamptz not null default now();
 
-alter table public.day_notes enable row level security;
-create policy "day_notes_select_own" on public.day_notes for select using (auth.uid() = user_id);
-create policy "day_notes_insert_own" on public.day_notes for insert with check (auth.uid() = user_id);
-create policy "day_notes_update_own" on public.day_notes for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "day_notes_delete_own" on public.day_notes for delete using (auth.uid() = user_id);
+-- ── 4. Backfill from legacy JSONB blobs ──────────────────────────────────────
 
--- ── Trade screenshots + storage ──────────────────────────────────────────────
-create table if not exists public.trade_screenshots (
-  id bigint generated always as identity primary key,
-  trade_id bigint not null references public.trades(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
-  storage_path text not null,
-  file_name text not null,
-  content_type text,
-  size_bytes bigint,
-  caption text,
-  sort_order integer not null default 0,
-  created_at timestamptz not null default now()
-);
-create index if not exists trade_screenshots_trade_id_idx on public.trade_screenshots(trade_id);
-create index if not exists trade_screenshots_user_id_idx on public.trade_screenshots(user_id);
+-- 4a. tags: union of names found inside trades_legacy.data->'tags' and the
+-- legacy per-user tags blob, deduped per (user_id, name), keeping colors from
+-- the legacy blob where available.
+insert into public.tags (user_id, name, color)
+select distinct on (user_id, name) user_id, name, color from (
+  select tl.user_id, (tag->>'name') as name, coalesce(tag->>'color', '#3b82f6') as color
+  from public.tags_legacy tl, jsonb_array_elements(tl.data) as tag
+  union all
+  select t.user_id, jsonb_array_elements_text(coalesce(t.data->'tags', '[]'::jsonb)) as name, '#3b82f6' as color
+  from public.trades_legacy t
+) all_tags
+on conflict (user_id, name) do nothing;
 
-alter table public.trade_screenshots enable row level security;
-create policy "trade_screenshots_select_own" on public.trade_screenshots for select using (auth.uid() = user_id);
-create policy "trade_screenshots_insert_own" on public.trade_screenshots for insert with check (auth.uid() = user_id);
-create policy "trade_screenshots_delete_own" on public.trade_screenshots for delete using (auth.uid() = user_id);
+-- 4b. trades: resolve instrument_id / contract_id via the legacy string codes.
+insert into public.trades (
+  id, user_id, is_historical, trade_date, trade_time, instrument_id, contract_id,
+  direction, entry_price, total_contracts, stop_loss, take_profit, risk_reward, pnl,
+  emotion_before, emotion_during, followed_plan, mistakes, events, what_went_well,
+  what_to_improve, notes, source, created_at, updated_at
+)
+select
+  t.id,
+  t.user_id,
+  coalesce((t.data->>'isHistorical')::boolean, false),
+  coalesce(nullif(t.data->>'date', '')::date, t.created_at::date),
+  nullif(t.data->>'time', '')::time,
+  i.id,
+  c.id,
+  t.data->>'direction',
+  (t.data->>'entryPrice')::numeric,
+  coalesce(nullif(t.data->>'totalContracts','')::numeric, 1),
+  nullif(t.data->>'sl','')::numeric,
+  nullif(t.data->>'tp','')::numeric,
+  (t.data->>'rr')::numeric,
+  coalesce((t.data->>'pnl')::numeric, 0),
+  nullif(t.data->>'emotion_before',''),
+  nullif(t.data->>'emotion_during',''),
+  (t.data->>'followed_plan')::boolean,
+  array(select jsonb_array_elements_text(coalesce(t.data->'mistakes','[]'::jsonb))),
+  array(select jsonb_array_elements_text(coalesce(t.data->'events','[]'::jsonb))),
+  nullif(t.data->>'what_went_well',''),
+  nullif(t.data->>'what_to_improve',''),
+  nullif(t.data->>'notes',''),
+  'manual',
+  t.created_at,
+  now()
+from public.trades_legacy t
+join public.instruments i on i.symbol = t.data->>'instrument' and i.user_id is null
+join public.contracts c on c.legacy_code = t.data->>'contractTypeId' and c.instrument_id = i.id;
 
-insert into storage.buckets (id, name, public)
-  values ('trade-screenshots', 'trade-screenshots', false)
-  on conflict (id) do nothing;
+-- 4c. trade_exits: unnest each trade's exits array, skipping placeholder rows
+-- that were never filled in (empty exitPrice).
+insert into public.trade_exits (trade_id, user_id, exit_price, contracts, pnl, exit_order)
+select
+  t.id,
+  t.user_id,
+  (e->>'exitPrice')::numeric,
+  coalesce(nullif(e->>'contracts','')::numeric, 1),
+  coalesce((e->>'pnl')::numeric, 0),
+  (ord - 1)::int
+from public.trades_legacy t
+join public.trades nt on nt.id = t.id
+cross join lateral jsonb_array_elements(coalesce(t.data->'exits', '[]'::jsonb)) with ordinality as x(e, ord)
+where nullif(e->>'exitPrice', '') is not null;
 
-create policy "screenshots_select_own" on storage.objects for select
-  using (bucket_id = 'trade-screenshots' and (storage.foldername(name))[1] = auth.uid()::text);
-create policy "screenshots_insert_own" on storage.objects for insert
-  with check (bucket_id = 'trade-screenshots' and (storage.foldername(name))[1] = auth.uid()::text);
-create policy "screenshots_update_own" on storage.objects for update
-  using (bucket_id = 'trade-screenshots' and (storage.foldername(name))[1] = auth.uid()::text);
-create policy "screenshots_delete_own" on storage.objects for delete
-  using (bucket_id = 'trade-screenshots' and (storage.foldername(name))[1] = auth.uid()::text);
+-- 4d. trade_tags: join each trade's tag names back to the now-populated tags table.
+insert into public.trade_tags (trade_id, tag_id, user_id)
+select t.id, tg.id, t.user_id
+from public.trades_legacy t
+join public.trades nt on nt.id = t.id
+cross join lateral jsonb_array_elements_text(coalesce(t.data->'tags', '[]'::jsonb)) as tag_name
+join public.tags tg on tg.user_id = t.user_id and tg.name = tag_name
+on conflict do nothing;
 
--- ── Atomic multi-table trade save ────────────────────────────────────────────
--- Saves a trade + its exits + its tag associations in one round-trip.
--- SECURITY INVOKER (default): RLS still applies to every statement inside,
--- so this cannot be used to write another user's data.
+-- 4e. drop the temporary legacy_code column now that backfill is done.
+alter table public.contracts drop column legacy_code;
+
+-- ── 5. Atomic multi-table trade save (trades + exits + tags in one call) ────
 create or replace function public.save_trade(
   p_id bigint,
   p_is_historical boolean,
@@ -336,3 +367,14 @@ end;
 $$;
 
 grant execute on function public.save_trade to authenticated;
+
+-- ── 6. Verification (should return matching rows — inspect before relying on
+-- the migration; this migration intentionally does not abort automatically
+-- so you can inspect a mismatch before deciding whether to fix data or revert
+-- to trades_legacy) ──────────────────────────────────────────────────────────
+-- select (select count(*) from trades_legacy) as legacy_count,
+--        (select count(*) from trades) as new_count;
+-- select (select round(sum((data->>'pnl')::numeric),2) from trades_legacy) as legacy_pnl_sum,
+--        (select round(sum(pnl),2) from trades) as new_pnl_sum;
+
+commit;

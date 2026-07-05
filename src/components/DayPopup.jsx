@@ -1,7 +1,7 @@
 import { tPnL, f$ } from "../lib/calc";
 import { EVENTS, BP } from "../lib/constants";
 
-export default function DayPopup({ dateKey, trades, tags, dayNoteVal, setDayNoteVal, onClose, onSaveNote, onDelete, onEdit }) {
+export default function DayPopup({ dateKey, trades, tags, instrumentMeta, dayNoteVal, setDayNoteVal, onClose, onSaveNote, onDelete, onEdit }) {
   const dayTrades = trades.filter((t) => t.date === dateKey);
   const dayPnl = dayTrades.reduce((s, t) => s + tPnL(t), 0);
   const d = new Date(dateKey + "T00:00:00");
@@ -54,7 +54,7 @@ export default function DayPopup({ dateKey, trades, tags, dayNoteVal, setDayNote
                 <div key={t.id} style={{ background: "#111827", borderRadius: 12, padding: 14, marginBottom: 10, border: "1px solid #1e2635" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                      <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 4, background: t.instrument === "ES" ? "#1d3461" : "#1a1040", color: t.instrument === "ES" ? "#60a5fa" : "#a78bfa" }}>{t.instrument}</span>
+                      <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 4, background: `${instrumentMeta?.[t.instrument]?.color || "#60a5fa"}22`, color: instrumentMeta?.[t.instrument]?.color || "#60a5fa" }}>{t.instrument}</span>
                       <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 4, background: t.direction === "Long" ? "#052e16" : "#3b0d14", color: t.direction === "Long" ? "#00c07a" : "#ef4444" }}>{t.direction}</span>
                       <span style={{ fontSize: 11, color: "#555" }}>{t.time || ""}</span>
                       {(t.tags || []).map((x) => {

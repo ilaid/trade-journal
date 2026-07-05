@@ -7,7 +7,7 @@ export default function Dashboard({
   calYear, calMonth, navMonth, goToday, isCurMonth,
   calDays, todayKey, openDay,
   byDay, byWeek, byMonth,
-  tags, openEdit, deleteTrade,
+  tags, instrumentMeta, openEdit, deleteTrade,
 }) {
   return (
     <>
@@ -108,7 +108,7 @@ export default function Dashboard({
           <div style={{ fontSize: 12, marginTop: 8 }}>No trades in {MONTH_NAMES[calMonth]}</div>
         </div>
       ) : (
-        mTrades.slice(0, 6).map((t) => <TRow key={t.id} trade={t} tags={tags} onEdit={openEdit} onDelete={deleteTrade} />)
+        mTrades.slice(0, 6).map((t) => <TRow key={t.id} trade={t} tags={tags} instrumentMeta={instrumentMeta} onEdit={openEdit} onDelete={deleteTrade} />)
       )}
     </>
   );

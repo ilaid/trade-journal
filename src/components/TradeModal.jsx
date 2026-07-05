@@ -1,11 +1,12 @@
 import { f$ } from "../lib/calc";
-import { CT, INST, DIRS, EMO, MIS, EVENTS, BP, BS } from "../lib/constants";
+import { DIRS, EMO, MIS, EVENTS, BP, BS } from "../lib/constants";
+import ScreenshotUploader from "./ScreenshotUploader";
 
 export default function TradeModal({
   form, set, step, setStep, editId, closing,
   addExit, updateExit, removeExit, contractsOk, usedContracts,
   toggleEvent, toggleTag, toggleMistake,
-  tags, totalPnL_form, onClose, onSave,
+  tags, CT, INST, totalPnL_form, onClose, onSave,
 }) {
   return (
     <div className={`overlay${closing ? " cl" : ""}`} onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -215,6 +216,14 @@ export default function TradeModal({
                   <textarea className="inp ta" value={form[f.k]} onChange={(e) => set(f.k, e.target.value)} placeholder={f.p} />
                 </div>
               ))}
+              {editId ? (
+                <div style={{ marginTop: 16 }}>
+                  <span className="fl">📷 Chart Screenshots</span>
+                  <ScreenshotUploader tradeId={editId} />
+                </div>
+              ) : (
+                <div style={{ marginTop: 16, fontSize: 11, color: "#374151" }}>Save this trade first, then reopen it to attach chart screenshots.</div>
+              )}
             </>
           )}
 

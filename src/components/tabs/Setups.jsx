@@ -1,7 +1,7 @@
 import { f$ } from "../../lib/calc";
 import { BP } from "../../lib/constants";
 
-export default function Setups({ tagStats, setModal, setTags }) {
+export default function Setups({ tagStats, setModal, deleteTag }) {
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -27,7 +27,7 @@ export default function Setups({ tagStats, setModal, setTags }) {
               <div style={{ fontSize: 14, fontWeight: 700, color: tag.pnl >= 0 ? "#00c07a" : "#ef4444" }}>{tag.count ? f$(tag.pnl) : "—"}</div>
             </div>
             <button
-              onClick={() => setTags((ts) => ts.filter((t) => t.id !== tag.id))}
+              onClick={() => deleteTag(tag.id)}
               style={{ background: "none", border: "none", color: "#374151", cursor: "pointer", fontSize: 14, padding: "3px 6px" }}
               onMouseOver={(e) => (e.target.style.color = "#ef4444")}
               onMouseOut={(e) => (e.target.style.color = "#374151")}

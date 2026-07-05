@@ -1,15 +1,13 @@
-export const CT = {
-  ES: [
-    { id: "ES_mini", label: "E-mini ES", ts: 0.25, tv: 12.5 },
-    { id: "MES_micro", label: "Micro MES", ts: 0.25, tv: 1.25 },
-  ],
-  NQ: [
-    { id: "NQ_mini", label: "E-mini NQ", ts: 0.25, tv: 5.0 },
-    { id: "MNQ_micro", label: "Micro MNQ", ts: 0.25, tv: 0.5 },
-  ],
+// Instruments/contracts now live in Supabase (public.instruments / public.contracts)
+// so users aren't limited to a hardcoded list — see src/lib/instruments.js for the
+// loader that fetches them and reshapes them into the CT/INST shape below.
+// This fallback is only used if that fetch fails or the migration hasn't run yet,
+// so the app never fully breaks.
+export const FALLBACK_CT = {
+  ES: [{ id: -1, label: "E-mini ES", ts: 0.25, tv: 12.5 }],
 };
+export const FALLBACK_INST = ["ES"];
 
-export const INST = ["ES", "NQ"];
 export const DIRS = ["Long", "Short"];
 export const EMO = ["🧘 Focused", "😎 Confident", "😐 Neutral", "😰 Anxious", "😤 Frustrated", "🤑 Greedy", "😴 Tired", "😤 FOMO"];
 export const MIS = ["Over-leveraged", "Moved SL", "Chased entry", "Ignored plan", "Exited early", "Held too long", "Revenge trade", "None"];
@@ -29,13 +27,15 @@ export const EVENTS = [
   { id: "PMI", label: "PMI", color: "#84cc16", bg: "#132008", desc: "PMI Data" },
 ];
 
-export const INIT_TAGS = [
-  { id: 1, name: "Breakout", color: "#3b82f6" },
-  { id: 2, name: "Reversal", color: "#f59e0b" },
-  { id: 3, name: "VWAP Reclaim", color: "#8b5cf6" },
-  { id: 4, name: "Trend Follow", color: "#10b981" },
-  { id: 5, name: "Gap Fill", color: "#ef4444" },
-  { id: 6, name: "Range", color: "#ec4899" },
+// Seeded into the real `tags` table for a brand-new user with zero tags
+// (see ensureDefaultTags in TradeJournal.jsx) — not a source of truth once rows exist.
+export const DEFAULT_TAGS = [
+  { name: "Breakout", color: "#3b82f6" },
+  { name: "Reversal", color: "#f59e0b" },
+  { name: "VWAP Reclaim", color: "#8b5cf6" },
+  { name: "Trend Follow", color: "#10b981" },
+  { name: "Gap Fill", color: "#ef4444" },
+  { name: "Range", color: "#ec4899" },
 ];
 
 export const BP = { background: "linear-gradient(135deg,#1d3461,#1e40af)", border: "1px solid #3b82f6", borderRadius: 8, color: "#93c5fd", padding: "9px 20px", cursor: "pointer", fontSize: 12, fontFamily: "'Azeret Mono',monospace" };

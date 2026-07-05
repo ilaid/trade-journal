@@ -1,26 +1,76 @@
 import { useState, useEffect, useCallback } from "react";
 import { sb } from "../lib/supabase";
-import { INIT_TAGS, TCOLORS, BP } from "../lib/constants";
+import { DEFAULT_TAGS, TCOLORS, BP } from "../lib/constants";
 import { gs, lp, calcRR, todayStr, nowTime, wk, mk, tPnL, be, BLANK } from "../lib/calc";
 import { exportCSV } from "../lib/csv";
+import { loadInstruments } from "../lib/instruments";
+import { deleteAllScreenshotsForTrade } from "../lib/screenshots";
 import DayPopup from "./DayPopup";
 import TradeModal from "./TradeModal";
 import TagModal from "./TagModal";
+import ImportModal from "./ImportModal";
 import Dashboard from "./tabs/Dashboard";
 import TradesList from "./tabs/TradesList";
 import Analytics from "./tabs/Analytics";
 import Setups from "./tabs/Setups";
 import Settings from "./tabs/Settings";
 
+const TRADE_SELECT = `
+  id, user_id, is_historical, trade_date, trade_time, instrument_id, contract_id,
+  direction, entry_price, total_contracts, stop_loss, take_profit, risk_reward, pnl,
+  emotion_before, emotion_during, followed_plan, mistakes, events, what_went_well,
+  what_to_improve, notes, source, broker, external_id,
+  instruments(symbol),
+  trade_exits(id, exit_price, contracts, pnl, exit_order),
+  trade_tags(tags(id, name, color))
+`;
+
+function hydrateTrade(row) {
+  return {
+    id: row.id,
+    isHistorical: row.is_historical,
+    date: row.trade_date,
+    time: row.trade_time ? String(row.trade_time).slice(0, 5) : "",
+    instrument: row.instruments?.symbol,
+    contractTypeId: row.contract_id,
+    direction: row.direction,
+    entryPrice: String(row.entry_price),
+    totalContracts: String(row.total_contracts),
+    exits: (row.trade_exits || [])
+      .slice()
+      .sort((a, b) => a.exit_order - b.exit_order)
+      .map((e) => ({ id: e.id, exitPrice: String(e.exit_price), contracts: String(e.contracts), pnl: Number(e.pnl) })),
+    sl: row.stop_loss != null ? String(row.stop_loss) : "",
+    tp: row.take_profit != null ? String(row.take_profit) : "",
+    rr: row.risk_reward != null ? Number(row.risk_reward) : null,
+    tags: (row.trade_tags || []).map((tt) => tt.tags?.name).filter(Boolean),
+    events: row.events || [],
+    emotion_before: row.emotion_before || "",
+    emotion_during: row.emotion_during || "",
+    followed_plan: row.followed_plan,
+    mistakes: row.mistakes || [],
+    what_went_well: row.what_went_well || "",
+    what_to_improve: row.what_to_improve || "",
+    notes: row.notes || "",
+    pnl: Number(row.pnl),
+    source: row.source,
+    broker: row.broker,
+    externalId: row.external_id,
+  };
+}
+
 export default function TradeJournal({ user, onSignOut }) {
   const [trades, setTradesState] = useState([]);
-  const [tags, setTagsState] = useState(INIT_TAGS);
+  const [tags, setTagsState] = useState([]);
   const [dayNotes, setDayNotes] = useState({});
+  const [CT, setCT] = useState({});
+  const [INST, setINST] = useState([]);
+  const [instrumentMeta, setInstrumentMeta] = useState({});
   const [dbLoading, setDbLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState("dashboard");
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState(BLANK);
+  const [form, setForm] = useState(null);
   const [step, setStep] = useState(1);
   const [closing, setClosing] = useState(false);
   const [newTag, setNewTag] = useState({ name: "", color: TCOLORS[0] });
@@ -34,16 +84,33 @@ export default function TradeJournal({ user, onSignOut }) {
     const load = async () => {
       setDbLoading(true);
       try {
-        const [{ data: tData }, { data: tagData }, { data: noteData }] = await Promise.all([
-          sb.from("trades").select("*").eq("user_id", user.id).order("id", { ascending: false }),
-          sb.from("tags").select("*").eq("user_id", user.id).single(),
+        const [{ CT: ct, INST: inst, META: meta }, { data: tradeRows, error: tradesErr }, { data: tagRows, error: tagsErr }, { data: noteRows }] = await Promise.all([
+          loadInstruments(),
+          sb.from("trades").select(TRADE_SELECT).eq("user_id", user.id).order("trade_date", { ascending: false }),
+          sb.from("tags").select("*").eq("user_id", user.id).order("name"),
           sb.from("day_notes").select("*").eq("user_id", user.id),
         ]);
-        if (tData) setTradesState(tData.map((r) => r.data));
-        if (tagData) setTagsState(tagData.data);
-        if (noteData) {
+        if (tradesErr) throw tradesErr;
+        if (tagsErr) throw tagsErr;
+
+        setCT(ct);
+        setINST(inst);
+        setInstrumentMeta(meta);
+        setTradesState((tradeRows || []).map(hydrateTrade));
+
+        if (!tagRows || tagRows.length === 0) {
+          const { data: seeded } = await sb
+            .from("tags")
+            .insert(DEFAULT_TAGS.map((t) => ({ ...t, user_id: user.id })))
+            .select();
+          setTagsState(seeded || []);
+        } else {
+          setTagsState(tagRows);
+        }
+
+        if (noteRows) {
           const notes = {};
-          noteData.forEach((r) => {
+          noteRows.forEach((r) => {
             notes[r.date] = r.note;
           });
           setDayNotes(notes);
@@ -56,47 +123,100 @@ export default function TradeJournal({ user, onSignOut }) {
     load();
   }, [user.id]);
 
-  const upsertTrade = async (trade) => {
+  useEffect(() => {
+    if (!dbLoading && !form) setForm(BLANK(CT, INST));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbLoading]);
+
+  const tagIdByName = Object.fromEntries(tags.map((t) => [t.name, t.id]));
+  const instrumentIdBySymbol = Object.fromEntries(Object.entries(instrumentMeta).map(([sym, m]) => [sym, m.id]));
+
+  const saveTradeToSupabase = async (tradeForm, totalPnL) => {
     setSyncing(true);
-    await sb.from("trades").upsert({ id: trade.id, user_id: user.id, data: trade });
-    setSyncing(false);
+    try {
+      const payload = {
+        p_id: tradeForm.id,
+        p_is_historical: tradeForm.isHistorical,
+        p_trade_date: tradeForm.date,
+        p_trade_time: tradeForm.time || null,
+        p_instrument_id: instrumentIdBySymbol[tradeForm.instrument],
+        p_contract_id: tradeForm.contractTypeId,
+        p_direction: tradeForm.direction,
+        p_entry_price: parseFloat(tradeForm.entryPrice),
+        p_total_contracts: parseFloat(tradeForm.totalContracts),
+        p_stop_loss: tradeForm.sl ? parseFloat(tradeForm.sl) : null,
+        p_take_profit: tradeForm.tp ? parseFloat(tradeForm.tp) : null,
+        p_risk_reward: tradeForm.rr,
+        p_pnl: totalPnL,
+        p_emotion_before: tradeForm.emotion_before || null,
+        p_emotion_during: tradeForm.emotion_during || null,
+        p_followed_plan: tradeForm.followed_plan,
+        p_mistakes: tradeForm.mistakes,
+        p_events: tradeForm.events,
+        p_what_went_well: tradeForm.what_went_well || null,
+        p_what_to_improve: tradeForm.what_to_improve || null,
+        p_notes: tradeForm.notes || null,
+        p_source: tradeForm.source || "manual",
+        p_broker: tradeForm.broker || null,
+        p_external_id: tradeForm.externalId || null,
+        p_exits: tradeForm.exits.filter((e) => e.exitPrice !== "" && e.exitPrice != null).map((e) => ({ exit_price: parseFloat(e.exitPrice), contracts: parseFloat(e.contracts), pnl: e.pnl || 0 })),
+        p_tag_ids: (tradeForm.tags || []).map((name) => tagIdByName[name]).filter(Boolean),
+      };
+      const { error } = await sb.rpc("save_trade", payload);
+      if (error) throw error;
+    } catch (e) {
+      console.error("Failed to save trade:", e);
+      throw e;
+    } finally {
+      setSyncing(false);
+    }
   };
+
   const deleteSupa = async (id) => {
     setSyncing(true);
-    await sb.from("trades").delete().eq("id", id).eq("user_id", user.id);
-    setSyncing(false);
-  };
-  const syncTags = async (newTags) => {
-    await sb.from("tags").upsert({ user_id: user.id, data: newTags, updated_at: new Date().toISOString() });
-  };
-  const syncNote = async (date, note) => {
-    if (note) await sb.from("day_notes").upsert({ user_id: user.id, date, note });
-    else await sb.from("day_notes").delete().eq("user_id", user.id).eq("date", date);
+    try {
+      await deleteAllScreenshotsForTrade(id);
+      await sb.from("trades").delete().eq("id", id).eq("user_id", user.id);
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const setTrades = useCallback((fn) => setTradesState((prev) => (typeof fn === "function" ? fn(prev) : fn)), []);
-  const setTags = useCallback(
-    (fn) =>
-      setTagsState((prev) => {
-        const next = typeof fn === "function" ? fn(prev) : fn;
-        syncTags(next);
-        return next;
-      }),
-    []
-  );
+
+  const addTag = async () => {
+    if (!newTag.name.trim()) return;
+    const { data, error } = await sb
+      .from("tags")
+      .insert({ user_id: user.id, name: newTag.name.trim(), color: newTag.color })
+      .select()
+      .single();
+    if (error) {
+      console.error("Failed to create tag:", error);
+      return;
+    }
+    setTagsState((ts) => [...ts, data]);
+    setNewTag({ name: "", color: TCOLORS[0] });
+  };
+
+  const deleteTag = async (id) => {
+    setTagsState((ts) => ts.filter((t) => t.id !== id));
+    await sb.from("tags").delete().eq("id", id).eq("user_id", user.id);
+  };
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   useEffect(() => {
-    const spec = gs(form.instrument, form.contractTypeId);
+    if (!form) return;
+    const spec = gs(CT, form.instrument, form.contractTypeId);
     const exits = form.exits.map((l) => ({ ...l, pnl: lp(form.entryPrice, l.exitPrice, l.contracts, spec, form.direction) }));
     const rr = calcRR(form.entryPrice, form.sl, form.tp, form.direction);
     setForm((f) => ({ ...f, exits, rr }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.entryPrice, form.sl, form.tp, form.direction, form.instrument, form.contractTypeId]);
+  }, [form?.entryPrice, form?.sl, form?.tp, form?.direction, form?.instrument, form?.contractTypeId]);
 
   const updateExit = (idx, key, val) => {
-    const spec = gs(form.instrument, form.contractTypeId);
+    const spec = gs(CT, form.instrument, form.contractTypeId);
     setForm((f) => {
       const exits = f.exits.map((l, i) => {
         if (i !== idx) return l;
@@ -109,25 +229,25 @@ export default function TradeJournal({ user, onSignOut }) {
   };
   const addExit = () => setForm((f) => ({ ...f, exits: [...f.exits, be()] }));
   const removeExit = (idx) => setForm((f) => ({ ...f, exits: f.exits.filter((_, i) => i !== idx) }));
-  const totalPnL_form = form.exits.reduce((s, l) => s + (l.pnl || 0), 0);
-  const usedContracts = form.exits.reduce((s, l) => s + (parseFloat(l.contracts) || 0), 0);
-  const contractsOk = usedContracts === 0 || Math.abs(usedContracts - (parseFloat(form.totalContracts) || 0)) < 0.001;
+  const totalPnL_form = form ? form.exits.reduce((s, l) => s + (l.pnl || 0), 0) : 0;
+  const usedContracts = form ? form.exits.reduce((s, l) => s + (parseFloat(l.contracts) || 0), 0) : 0;
+  const contractsOk = !form || usedContracts === 0 || Math.abs(usedContracts - (parseFloat(form.totalContracts) || 0)) < 0.001;
 
   const openAdd = () => {
-    setForm({ ...BLANK(), date: todayStr(), time: nowTime() });
+    setForm({ ...BLANK(CT, INST), date: todayStr(), time: nowTime() });
     setStep(1);
     setEditId(null);
     setModal("add");
   };
   const openBacktest = () => {
-    setForm({ ...BLANK(), date: "", time: "", isHistorical: true });
+    setForm({ ...BLANK(CT, INST), date: "", time: "", isHistorical: true });
     setStep(1);
     setEditId(null);
     setModal("add");
   };
   const openEdit = (t) => {
-    const exits = t.exits?.length > 0 ? t.exits : [{ id: Date.now(), exitPrice: t.exitPrice || "", contracts: t.contracts || "", pnl: t.pnl }];
-    setForm({ ...BLANK(), ...t, exits, tp: t.tp || "", events: t.events || [] });
+    const exits = t.exits?.length > 0 ? t.exits : [{ id: crypto.randomUUID(), exitPrice: t.exitPrice || "", contracts: t.contracts || "", pnl: t.pnl }];
+    setForm({ ...BLANK(CT, INST), ...t, exits, tp: t.tp || "", events: t.events || [] });
     setStep(1);
     setEditId(t.id);
     setModal("add");
@@ -144,8 +264,61 @@ export default function TradeJournal({ user, onSignOut }) {
     const trade = { ...form, id: editId || Date.now(), pnl: totalPnL_form };
     if (editId) setTrades((ts) => ts.map((t) => (t.id === editId ? trade : t)));
     else setTrades((ts) => [trade, ...ts].sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time)));
-    await upsertTrade(trade);
+    try {
+      await saveTradeToSupabase(trade, totalPnL_form);
+    } catch {
+      // state already optimistically updated; user sees "syncing" clear without a hard error banner for now
+    }
     closeModal();
+  };
+
+  const importTrades = async (normalizedRows, broker) => {
+    setSyncing(true);
+    const imported = [];
+    for (const row of normalizedRows) {
+      const contract = CT[row.instrument]?.[0];
+      if (!contract) continue;
+      const spec = contract;
+      const pnl = row.pnl ?? lp(row.entryPrice, row.exitPrice, row.contracts, spec, row.direction) ?? 0;
+      const tradeId = Date.now() + Math.floor(Math.random() * 1000);
+      const trade = {
+        id: tradeId,
+        isHistorical: true,
+        date: row.date,
+        time: row.time || "",
+        instrument: row.instrument,
+        contractTypeId: contract.id,
+        direction: row.direction,
+        entryPrice: String(row.entryPrice),
+        totalContracts: String(row.contracts),
+        exits: [{ id: crypto.randomUUID(), exitPrice: String(row.exitPrice), contracts: String(row.contracts), pnl }],
+        sl: "",
+        tp: "",
+        rr: null,
+        tags: [],
+        events: [],
+        emotion_before: "",
+        emotion_during: "",
+        followed_plan: null,
+        mistakes: [],
+        what_went_well: "",
+        what_to_improve: "",
+        notes: row.notes || "",
+        pnl,
+        source: "import",
+        broker,
+        externalId: row.externalId,
+      };
+      try {
+        await saveTradeToSupabase(trade, pnl);
+        imported.push(trade);
+      } catch (e) {
+        console.error("Import row failed:", row, e);
+      }
+    }
+    setTrades((ts) => [...imported, ...ts].sort((a, b) => b.date.localeCompare(a.date) || (b.time || "").localeCompare(a.time || "")));
+    setSyncing(false);
+    return imported.length;
   };
 
   const deleteTrade = async (id) => {
@@ -155,18 +328,14 @@ export default function TradeJournal({ user, onSignOut }) {
   const toggleMistake = (m) => set("mistakes", form.mistakes.includes(m) ? form.mistakes.filter((x) => x !== m) : [...form.mistakes, m]);
   const toggleTag = (name) => set("tags", form.tags.includes(name) ? form.tags.filter((x) => x !== name) : [...form.tags, name]);
   const toggleEvent = (eid) => set("events", form.events.includes(eid) ? form.events.filter((x) => x !== eid) : [...form.events, eid]);
-  const addTag = () => {
-    if (!newTag.name.trim()) return;
-    setTags((ts) => [...ts, { id: Date.now(), ...newTag }]);
-    setNewTag({ name: "", color: TCOLORS[0] });
-  };
 
   const saveDayNote = async (date, note) => {
     const updated = { ...dayNotes };
     if (note.trim()) updated[date] = note.trim();
     else delete updated[date];
     setDayNotes(updated);
-    await syncNote(date, note.trim());
+    if (note.trim()) await sb.from("day_notes").upsert({ user_id: user.id, date, note: note.trim() });
+    else await sb.from("day_notes").delete().eq("user_id", user.id).eq("date", date);
   };
 
   const navMonth = (delta) => {
@@ -186,7 +355,6 @@ export default function TradeJournal({ user, onSignOut }) {
 
   const pnls = trades.map(tPnL);
   const wins = pnls.filter((p) => p > 0).length;
-  const losses = pnls.filter((p) => p < 0).length;
   const totalAll = pnls.reduce((a, b) => a + b, 0);
   const winRate = trades.length ? Math.round((wins / trades.length) * 100) : 0;
   const grossW = pnls.filter((p) => p > 0).reduce((a, b) => a + b, 0);
@@ -252,7 +420,7 @@ export default function TradeJournal({ user, onSignOut }) {
   };
   const closeDay = () => setDayPopup(null);
 
-  if (dbLoading) {
+  if (dbLoading || !form) {
     return (
       <div style={{ minHeight: "100vh", background: "#070a0e", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, fontFamily: "'Azeret Mono',monospace" }}>
         <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#3b82f6", boxShadow: "0 0 12px #3b82f6", animation: "pulse 1s infinite" }} />
@@ -276,6 +444,9 @@ export default function TradeJournal({ user, onSignOut }) {
               ↓ CSV
             </button>
           )}
+          <button onClick={() => setModal("import")} style={{ background: "#111827", border: "1px solid #1e2635", borderRadius: 7, color: "#6b7280", padding: "7px 11px", cursor: "pointer", fontSize: 11, fontFamily: "'Azeret Mono',monospace" }}>
+            ↑ Import
+          </button>
           <span style={{ fontSize: 10, color: "#374151", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</span>
           <button onClick={onSignOut} style={{ background: "none", border: "1px solid #1e2635", borderRadius: 7, color: "#4b5563", padding: "6px 12px", cursor: "pointer", fontSize: 11, fontFamily: "'Azeret Mono',monospace" }}>
             Sign out
@@ -327,32 +498,23 @@ export default function TradeJournal({ user, onSignOut }) {
             byWeek={byWeek}
             byMonth={byMonth}
             tags={tags}
+            instrumentMeta={instrumentMeta}
             openEdit={openEdit}
             deleteTrade={deleteTrade}
           />
         )}
 
-        {tab === "trades" && <TradesList trades={trades} tags={tags} openEdit={openEdit} deleteTrade={deleteTrade} />}
+        {tab === "trades" && <TradesList trades={trades} tags={tags} instrumentMeta={instrumentMeta} openEdit={openEdit} deleteTrade={deleteTrade} />}
 
         {tab === "stats" && <Analytics trades={trades} totalAll={totalAll} winRate={winRate} grossW={grossW} grossL={grossL} byMonth={byMonth} setCalYear={setCalYear} setCalMonth={setCalMonth} setTab={setTab} />}
 
-        {tab === "tags" && <Setups tagStats={tagStats} setModal={setModal} setTags={setTags} />}
+        {tab === "tags" && <Setups tagStats={tagStats} setModal={setModal} deleteTag={deleteTag} />}
 
-        {tab === "settings" && <Settings trades={trades} user={user} setTrades={setTrades} sb={sb} />}
+        {tab === "settings" && <Settings trades={trades} user={user} setTrades={setTrades} sb={sb} CT={CT} INST={INST} instrumentMeta={instrumentMeta} userId={user.id} onInstrumentsChanged={(ct, inst, meta) => { setCT(ct); setINST(inst); setInstrumentMeta(meta); }} />}
       </div>
 
       {dayPopup && (
-        <DayPopup
-          dateKey={dayPopup}
-          trades={trades}
-          tags={tags}
-          dayNoteVal={dayNoteVal}
-          setDayNoteVal={setDayNoteVal}
-          onClose={closeDay}
-          onSaveNote={saveDayNote}
-          onDelete={deleteTrade}
-          onEdit={openEdit}
-        />
+        <DayPopup dateKey={dayPopup} trades={trades} tags={tags} instrumentMeta={instrumentMeta} dayNoteVal={dayNoteVal} setDayNoteVal={setDayNoteVal} onClose={closeDay} onSaveNote={saveDayNote} onDelete={deleteTrade} onEdit={openEdit} />
       )}
 
       {modal === "add" && (
@@ -372,6 +534,8 @@ export default function TradeJournal({ user, onSignOut }) {
           toggleTag={toggleTag}
           toggleMistake={toggleMistake}
           tags={tags}
+          CT={CT}
+          INST={INST}
           totalPnL_form={totalPnL_form}
           onClose={closeModal}
           onSave={saveTrade}
@@ -379,6 +543,8 @@ export default function TradeJournal({ user, onSignOut }) {
       )}
 
       {modal === "tag" && <TagModal newTag={newTag} setNewTag={setNewTag} onCreate={addTag} onClose={() => setModal(null)} />}
+
+      {modal === "import" && <ImportModal CT={CT} existingTrades={trades} onImport={importTrades} onClose={() => setModal(null)} />}
     </div>
   );
 }

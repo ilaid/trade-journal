@@ -1,18 +1,24 @@
 import { tPnL, f$ } from "../lib/calc";
 import { EVENTS } from "../lib/constants";
 
-export default function TRow({ trade, tags, onEdit, onDelete }) {
+export default function TRow({ trade, tags, instrumentMeta, onEdit, onDelete }) {
   const pnl = tPnL(trade);
+  const instColor = instrumentMeta?.[trade.instrument]?.color || "#60a5fa";
   return (
     <div className="tr" onClick={() => onEdit(trade)}>
       <div style={{ display: "flex", alignItems: "center", gap: 7, flex: 1, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: trade.instrument === "ES" ? "#1d3461" : "#1a1040", color: trade.instrument === "ES" ? "#60a5fa" : "#a78bfa" }}>{trade.instrument}</span>
+        <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: `${instColor}22`, color: instColor }}>{trade.instrument}</span>
         <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 4, background: trade.direction === "Long" ? "#052e16" : "#3b0d14", color: trade.direction === "Long" ? "#00c07a" : "#ef4444" }}>{trade.direction}</span>
         {trade.isHistorical && <span style={{ fontSize: 9, padding: "2px 5px", borderRadius: 3, background: "#1a120a", color: "#f59e0b", border: "1px solid #92400e55" }}>HIST</span>}
         <span style={{ fontSize: 10, color: "#374151" }}>
           {trade.date} {trade.time}
         </span>
         <span style={{ fontSize: 10, color: "#4b5563" }}>{trade.totalContracts}c</span>
+        {trade.screenshotCount > 0 && (
+          <span style={{ fontSize: 10, color: "#4b5563" }}>
+            📷 {trade.screenshotCount}
+          </span>
+        )}
         {(trade.tags || []).map((t) => {
           const tag = tags.find((x) => x.name === t);
           return (
