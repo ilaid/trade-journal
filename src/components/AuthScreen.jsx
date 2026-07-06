@@ -41,8 +41,8 @@ export default function AuthScreen({ onAuth }) {
           <div style={{ width: 48, height: 48, borderRadius: "50%", background: "#e9e7fb", border: "1px solid #5b52e0", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", boxShadow: "0 0 20px rgba(91,82,224,.2)" }}>
             <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#5b52e0", boxShadow: "0 0 8px #5b52e0" }} />
           </div>
-          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 800, color: "#0f172a", letterSpacing: ".04em" }}>TRADE JOURNAL</div>
-          <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>ES · NQ Futures</div>
+          <div style={{ fontFamily: "'Syne',sans-serif", fontSize: 20, fontWeight: 800, color: "#0f172a", letterSpacing: ".01em" }}>TradeMethod</div>
+          <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4, letterSpacing: ".1em", textTransform: "uppercase" }}>Trading Journal</div>
         </div>
         <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 4, marginBottom: 24 }}>
           {["login", "register"].map((m) => (

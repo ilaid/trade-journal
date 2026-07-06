@@ -436,7 +436,7 @@ export default function TradeJournal({ user, onSignOut }) {
       <div style={{ borderBottom: "1px solid #f1f5f9", padding: "13px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, background: "#e7e9f1", zIndex: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#5b52e0", boxShadow: "0 0 8px #5b52e0" }} />
-          <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 800, color: "#0f172a" }}>TRADE JOURNAL</span>
+          <span style={{ fontFamily: "'Syne',sans-serif", fontSize: 16, fontWeight: 800, color: "#0f172a" }}>TradeMethod</span>
           {syncing && <span style={{ fontSize: 9, color: "#94a3b8", animation: "pulse 1s infinite" }}>syncing...</span>}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
