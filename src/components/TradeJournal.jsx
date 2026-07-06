@@ -15,6 +15,7 @@ import Calendar from "./tabs/Calendar";
 import TradesList from "./tabs/TradesList";
 import Analytics from "./tabs/Analytics";
 import Setups from "./tabs/Setups";
+import Playbook from "./tabs/Playbook";
 import Settings from "./tabs/Settings";
 
 const TRADE_SELECT = `
@@ -482,6 +483,7 @@ export default function TradeJournal({ user, onSignOut }) {
           ["trades", "📋 Trades"],
           ["stats", "📈 Analytics"],
           ["tags", "🏷️ Setups"],
+          ["playbook", "📓 Playbook"],
           ["settings", "⚙️ Settings"],
         ].map(([k, l]) => (
           <button key={k} className={`nt${tab === k ? " on" : ""}`} onClick={() => setTab(k)}>
@@ -533,6 +535,8 @@ export default function TradeJournal({ user, onSignOut }) {
         {tab === "stats" && <Analytics trades={trades} totalAll={totalAll} winRate={winRate} grossW={grossW} grossL={grossL} byDay={byDay} byWeek={byWeek} byMonth={byMonth} setCalYear={setCalYear} setCalMonth={setCalMonth} setTab={setTab} />}
 
         {tab === "tags" && <Setups tagStats={tagStats} setModal={setModal} deleteTag={deleteTag} />}
+
+        {tab === "playbook" && <Playbook userId={user.id} />}
 
         {tab === "settings" && <Settings trades={trades} user={user} setTrades={setTrades} sb={sb} CT={CT} INST={INST} instrumentMeta={instrumentMeta} userId={user.id} onInstrumentsChanged={(ct, inst, meta) => { setCT(ct); setINST(inst); setInstrumentMeta(meta); }} />}
       </div>
