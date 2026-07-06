@@ -8,12 +8,12 @@ import WinLoss from "../charts/WinLoss";
 
 const cardTitle = { fontSize: 11, color: "#64748b", marginBottom: 12, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 };
 
-export default function Dashboard({ trades, mPnl, mWr, mTrades, mPf, mAvgRR, calMonth, tags, instrumentMeta, openEdit, deleteTrade }) {
+export default function Dashboard({ trades, goal, onSaveGoal, mPnl, mWr, mTrades, mPf, mAvgRR, calMonth, tags, instrumentMeta, openEdit, deleteTrade }) {
   const allTimePnl = (trades || []).map((t) => (t.exits?.length ? t.exits.reduce((a, l) => a + (l.pnl || 0), 0) : t.pnl || 0)).reduce((a, b) => a + b, 0);
 
   return (
     <>
-      <MonthlyGoal mPnl={mPnl} />
+      <MonthlyGoal mPnl={mPnl} goal={goal} onSaveGoal={onSaveGoal} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 12 }}>
         {[

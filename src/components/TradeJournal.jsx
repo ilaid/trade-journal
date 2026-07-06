@@ -4,6 +4,7 @@ import { DEFAULT_TAGS, TCOLORS, BP } from "../lib/constants";
 import { gs, lp, calcRR, todayStr, nowTime, wk, mk, tPnL, be, BLANK } from "../lib/calc";
 import { exportCSV } from "../lib/csv";
 import { loadInstruments } from "../lib/instruments";
+import { loadSettings, saveSetting } from "../lib/settings";
 import { deleteAllScreenshotsForTrade } from "../lib/screenshots";
 import DayPopup from "./DayPopup";
 import TradeModal from "./TradeModal";
@@ -80,6 +81,18 @@ export default function TradeJournal({ user, onSignOut }) {
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
   const [dayPopup, setDayPopup] = useState(null);
   const [dayNoteVal, setDayNoteVal] = useState("");
+  const [monthlyGoal, setMonthlyGoal] = useState(1000);
+
+  useEffect(() => {
+    loadSettings(user.id).then((s) => {
+      if (Number.isFinite(s.monthlyGoal) && s.monthlyGoal > 0) setMonthlyGoal(s.monthlyGoal);
+    });
+  }, [user.id]);
+
+  const saveGoal = (v) => {
+    setMonthlyGoal(v);
+    saveSetting(user.id, "monthlyGoal", v);
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -481,6 +494,8 @@ export default function TradeJournal({ user, onSignOut }) {
         {tab === "dashboard" && (
           <Dashboard
             trades={trades}
+            goal={monthlyGoal}
+            onSaveGoal={saveGoal}
             mPnl={mPnl}
             mWr={mWr}
             mTrades={mTrades}
