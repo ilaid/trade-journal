@@ -1,7 +1,81 @@
+import { useEffect, useState } from "react";
 import { tPnL, f$ } from "../lib/calc";
 import { EVENTS, BP } from "../lib/constants";
+import { listScreenshots, uploadScreenshot, getSignedUrl, deleteScreenshot, validateScreenshotFile } from "../lib/screenshots";
 
-export default function DayPopup({ dateKey, trades, tags, instrumentMeta, dayNoteVal, setDayNoteVal, onClose, onSaveNote, onDelete, onEdit }) {
+// A trade's images, attached straight from the day view (click a date → attach).
+// Reuses the per-trade screenshot storage (bucket trade-screenshots, keyed by trade_id).
+function TradeImages({ tradeId, userId }) {
+  const [shots, setShots] = useState([]);
+  const [urls, setUrls] = useState({});
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const s = await listScreenshots(tradeId);
+      setShots(s);
+      const u = {};
+      for (const sc of s) {
+        try {
+          u[sc.id] = await getSignedUrl(sc.storage_path);
+        } catch {
+          // skip a broken URL
+        }
+      }
+      setUrls(u);
+    } catch {
+      // table/bucket missing — hide silently
+    }
+  };
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tradeId]);
+
+  const onFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const err = validateScreenshotFile(file);
+    if (err) return alert(err);
+    setBusy(true);
+    try {
+      await uploadScreenshot(userId, tradeId, file);
+      await load();
+    } catch (er) {
+      alert(er.message || "Upload failed");
+    }
+    setBusy(false);
+  };
+  const del = async (sc) => {
+    if (!window.confirm("Delete this image?")) return;
+    setShots((s) => s.filter((x) => x.id !== sc.id));
+    try {
+      await deleteScreenshot(sc);
+    } catch {
+      load();
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+      {shots.map((sc) => (
+        <div key={sc.id} style={{ position: "relative" }}>
+          <img src={urls[sc.id]} alt={sc.file_name} onClick={() => urls[sc.id] && window.open(urls[sc.id], "_blank")} style={{ width: 54, height: 54, objectFit: "cover", borderRadius: 6, border: "1px solid #e2e8f0", cursor: "pointer", background: "#f1f5f9" }} />
+          <button onClick={() => del(sc)} title="Delete" style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", background: "#dc2626", color: "#fff", border: "none", cursor: "pointer", fontSize: 11, lineHeight: "16px", padding: 0 }}>
+            ×
+          </button>
+        </div>
+      ))}
+      <label style={{ fontSize: 11, color: "#5b52e0", cursor: "pointer", border: "1px dashed #c7d2fe", borderRadius: 6, padding: "6px 10px", background: "#f5f3ff" }}>
+        {busy ? "Uploading…" : "📷 Add image"}
+        <input type="file" accept="image/*" onChange={onFile} disabled={busy} style={{ display: "none" }} />
+      </label>
+    </div>
+  );
+}
+
+export default function DayPopup({ dateKey, trades, tags, instrumentMeta, userId, dayNoteVal, setDayNoteVal, onClose, onSaveNote, onDelete, onEdit }) {
   const dayTrades = trades.filter((t) => t.date === dateKey);
   const dayPnl = dayTrades.reduce((s, t) => s + tPnL(t), 0);
   const d = new Date(dateKey + "T00:00:00");
@@ -108,6 +182,7 @@ export default function DayPopup({ dateKey, trades, tags, instrumentMeta, dayNot
                     <div style={{ padding: "7px 10px", background: "#fef3c7", borderRadius: 6, fontSize: 11, color: "#d97706", marginBottom: 4 }}>📈 {t.what_to_improve}</div>
                   )}
                   {t.notes && <div style={{ padding: "7px 10px", background: "#f8fafc", borderRadius: 6, fontSize: 11, color: "#64748b" }}>{t.notes}</div>}
+                  <TradeImages tradeId={t.id} userId={userId} />
                   <button
                     onClick={() => {
                       onClose();

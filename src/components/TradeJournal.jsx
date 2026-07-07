@@ -17,12 +17,13 @@ import Analytics from "./tabs/Analytics";
 import Setups from "./tabs/Setups";
 import Playbook from "./tabs/Playbook";
 import Settings from "./tabs/Settings";
+import BacktestArea from "./tabs/BacktestArea";
 
 const TRADE_SELECT = `
   id, user_id, is_historical, trade_date, trade_time, instrument_id, contract_id,
   direction, entry_price, total_contracts, stop_loss, take_profit, risk_reward, pnl,
   emotion_before, emotion_during, followed_plan, mistakes, events, what_went_well,
-  what_to_improve, notes, source, broker, external_id,
+  what_to_improve, notes, source, broker, external_id, backtest_folder_id,
   instruments(symbol),
   trade_exits(id, exit_price, contracts, pnl, exit_order),
   trade_tags(tags(id, name, color))
@@ -32,6 +33,7 @@ function hydrateTrade(row) {
   return {
     id: row.id,
     isHistorical: row.is_historical,
+    backtestFolderId: row.backtest_folder_id ?? null,
     date: row.trade_date,
     time: row.trade_time ? String(row.trade_time).slice(0, 5) : "",
     instrument: row.instruments?.symbol,
@@ -81,6 +83,7 @@ export default function TradeJournal({ user, onSignOut }) {
   const [calYear, setCalYear] = useState(new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
   const [dayPopup, setDayPopup] = useState(null);
+  const [backtestOpen, setBacktestOpen] = useState(false);
   const [dayNoteVal, setDayNoteVal] = useState("");
   const [monthlyGoal, setMonthlyGoal] = useState(1000);
 
@@ -179,6 +182,10 @@ export default function TradeJournal({ user, onSignOut }) {
       };
       const { error } = await sb.rpc("save_trade", payload);
       if (error) throw error;
+      // save_trade doesn't touch backtest_folder_id; set it for folder trades.
+      if (tradeForm.backtestFolderId) {
+        await sb.from("trades").update({ backtest_folder_id: tradeForm.backtestFolderId }).eq("id", tradeForm.id).eq("user_id", user.id);
+      }
     } catch (e) {
       console.error("Failed to save trade:", e);
       throw e;
@@ -254,8 +261,9 @@ export default function TradeJournal({ user, onSignOut }) {
     setEditId(null);
     setModal("add");
   };
-  const openBacktest = () => {
-    setForm({ ...BLANK(CT, INST), date: "", time: "", isHistorical: true });
+  // Add a trade directly into a backtest folder (historical entry, folder-scoped).
+  const openFolderTrade = (folderId) => {
+    setForm({ ...BLANK(CT, INST), date: "", time: "", isHistorical: true, backtestFolderId: folderId });
     setStep(1);
     setEditId(null);
     setModal("add");
@@ -368,27 +376,29 @@ export default function TradeJournal({ user, onSignOut }) {
     setCalYear(y);
   };
 
-  const pnls = trades.map(tPnL);
+  // The live journal excludes trades that live inside a backtest folder.
+  const journalTrades = trades.filter((t) => !t.backtestFolderId);
+  const pnls = journalTrades.map(tPnL);
   const wins = pnls.filter((p) => p > 0).length;
   const totalAll = pnls.reduce((a, b) => a + b, 0);
-  const winRate = trades.length ? Math.round((wins / trades.length) * 100) : 0;
+  const winRate = journalTrades.length ? Math.round((wins / journalTrades.length) * 100) : 0;
   const grossW = pnls.filter((p) => p > 0).reduce((a, b) => a + b, 0);
   const grossL = Math.abs(pnls.filter((p) => p < 0).reduce((a, b) => a + b, 0));
-  const byDay = trades.reduce((acc, t) => {
+  const byDay = journalTrades.reduce((acc, t) => {
     acc[t.date] = (acc[t.date] || 0) + tPnL(t);
     return acc;
   }, {});
-  const byWeek = trades.reduce((acc, t) => {
+  const byWeek = journalTrades.reduce((acc, t) => {
     const k = wk(t.date);
     acc[k] = (acc[k] || 0) + tPnL(t);
     return acc;
   }, {});
-  const byMonth = trades.reduce((acc, t) => {
+  const byMonth = journalTrades.reduce((acc, t) => {
     const k = mk(t.date);
     acc[k] = (acc[k] || 0) + tPnL(t);
     return acc;
   }, {});
-  const tByDay = trades.reduce((acc, t) => {
+  const tByDay = journalTrades.reduce((acc, t) => {
     if (!acc[t.date]) acc[t.date] = [];
     acc[t.date].push(t);
     return acc;
@@ -396,14 +406,14 @@ export default function TradeJournal({ user, onSignOut }) {
 
   const tagStats = tags
     .map((tag) => {
-      const tg = trades.filter((t) => (t.tags || []).includes(tag.name)),
+      const tg = journalTrades.filter((t) => (t.tags || []).includes(tag.name)),
         tw = tg.filter((t) => tPnL(t) > 0).length;
       return { ...tag, count: tg.length, wr: tg.length ? Math.round((tw / tg.length) * 100) : 0, pnl: tg.reduce((s, t) => s + tPnL(t), 0) };
     })
     .sort((a, b) => b.count - a.count);
 
   const mKey = `${calYear}-${String(calMonth + 1).padStart(2, "0")}`;
-  const mTrades = trades.filter((t) => t.date.startsWith(mKey));
+  const mTrades = journalTrades.filter((t) => t.date.startsWith(mKey));
   const mPnl = mTrades.reduce((s, t2) => s + tPnL(t2), 0);
   const mWins = mTrades.filter((t2) => tPnL(t2) > 0).length;
   const mWr = mTrades.length ? Math.round((mWins / mTrades.length) * 100) : 0;
@@ -454,8 +464,8 @@ export default function TradeJournal({ user, onSignOut }) {
           {syncing && <span style={{ fontSize: 9, color: "#94a3b8", animation: "pulse 1s infinite" }}>syncing...</span>}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          {trades.length > 0 && (
-            <button onClick={() => exportCSV(trades)} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 7, color: "#64748b", padding: "7px 11px", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}>
+          {journalTrades.length > 0 && (
+            <button onClick={() => exportCSV(journalTrades)} style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 7, color: "#64748b", padding: "7px 11px", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}>
               ↓ CSV
             </button>
           )}
@@ -466,8 +476,8 @@ export default function TradeJournal({ user, onSignOut }) {
           <button onClick={onSignOut} style={{ background: "none", border: "1px solid #e2e8f0", borderRadius: 7, color: "#64748b", padding: "6px 12px", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}>
             Sign out
           </button>
-          <button onClick={openBacktest} style={{ background: "linear-gradient(135deg,#ede9fe,#ddd6fe)", border: "1px solid #7c3aed", borderRadius: 8, color: "#7c3aed", padding: "7px 12px", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}>
-            ⏪
+          <button onClick={() => setBacktestOpen(true)} title="Backtest area" style={{ background: "linear-gradient(135deg,#ede9fe,#ddd6fe)", border: "1px solid #7c3aed", borderRadius: 8, color: "#7c3aed", padding: "7px 12px", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}>
+            ⏪ Backtest
           </button>
           <button onClick={openAdd} style={{ ...BP, padding: "7px 14px", fontSize: 11 }}>
             + Trade
@@ -495,7 +505,7 @@ export default function TradeJournal({ user, onSignOut }) {
       <div style={{ padding: "22px 24px", maxWidth: 1100, margin: "0 auto" }}>
         {tab === "dashboard" && (
           <Dashboard
-            trades={trades}
+            trades={journalTrades}
             goal={monthlyGoal}
             onSaveGoal={saveGoal}
             mPnl={mPnl}
@@ -530,7 +540,7 @@ export default function TradeJournal({ user, onSignOut }) {
           />
         )}
 
-        {tab === "trades" && <TradesList trades={trades} tags={tags} instrumentMeta={instrumentMeta} openEdit={openEdit} deleteTrade={deleteTrade} />}
+        {tab === "trades" && <TradesList trades={journalTrades} tags={tags} instrumentMeta={instrumentMeta} openEdit={openEdit} deleteTrade={deleteTrade} />}
 
         {tab === "stats" && <Analytics trades={trades} totalAll={totalAll} winRate={winRate} grossW={grossW} grossL={grossL} byDay={byDay} byWeek={byWeek} byMonth={byMonth} setCalYear={setCalYear} setCalMonth={setCalMonth} setTab={setTab} />}
 
@@ -542,7 +552,22 @@ export default function TradeJournal({ user, onSignOut }) {
       </div>
 
       {dayPopup && (
-        <DayPopup dateKey={dayPopup} trades={trades} tags={tags} instrumentMeta={instrumentMeta} dayNoteVal={dayNoteVal} setDayNoteVal={setDayNoteVal} onClose={closeDay} onSaveNote={saveDayNote} onDelete={deleteTrade} onEdit={openEdit} />
+        <DayPopup dateKey={dayPopup} trades={journalTrades} tags={tags} instrumentMeta={instrumentMeta} userId={user.id} dayNoteVal={dayNoteVal} setDayNoteVal={setDayNoteVal} onClose={closeDay} onSaveNote={saveDayNote} onDelete={deleteTrade} onEdit={openEdit} />
+      )}
+
+      {backtestOpen && (
+        <BacktestArea
+          userId={user.id}
+          trades={trades}
+          tags={tags}
+          instrumentMeta={instrumentMeta}
+          dayNotes={dayNotes}
+          onSaveNote={saveDayNote}
+          onNewTrade={openFolderTrade}
+          onEditTrade={openEdit}
+          onDeleteTrade={deleteTrade}
+          onClose={() => setBacktestOpen(false)}
+        />
       )}
 
       {modal === "add" && (

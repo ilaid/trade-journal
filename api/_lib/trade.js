@@ -61,7 +61,8 @@ async function resolve(supa, userId, symbol, contractHint) {
 
 // Resolve, price and insert one trade (+ exit). `t` is a normalized payload:
 //   { symbol, direction, entry, exit, stop, target, qty, providedPnl,
-//     externalId, timeISO, notes, broker, contractHint }
+//     externalId, timeISO, notes, broker, contractHint, backtestFolderId }
+// backtestFolderId routes the trade into a backtest folder (null = live journal).
 // Returns { ok, id, symbol, direction, pnl }. Throws TradeError on bad input,
 // or a plain Error on a DB failure.
 export async function importTrade(supa, userId, t) {
@@ -121,6 +122,7 @@ export async function importTrade(supa, userId, t) {
     source: "api",
     broker: norm(t.broker) || "API",
     external_id: t.externalId ? norm(t.externalId) : null,
+    backtest_folder_id: t.backtestFolderId ?? null,
   });
   if (tErr) {
     // The unique index on (user_id, broker, external_id) makes re-imports idempotent.
