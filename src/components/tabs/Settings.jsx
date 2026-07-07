@@ -3,6 +3,7 @@ import { exportCSV } from "../../lib/csv";
 import { BP, TCOLORS } from "../../lib/constants";
 import { loadInstruments } from "../../lib/instruments";
 import AutoImportCard from "../AutoImportCard";
+import BrokerConnectCard from "../BrokerConnectCard";
 
 export default function Settings({ trades, user, setTrades, sb, CT, INST, instrumentMeta, userId, onInstrumentsChanged }) {
   const [form, setForm] = useState({ symbol: "", label: "", tickSize: "", tickValue: "", color: TCOLORS[0] });
@@ -48,6 +49,8 @@ export default function Settings({ trades, user, setTrades, sb, CT, INST, instru
       </div>
 
       <AutoImportCard userId={userId} />
+
+      <BrokerConnectCard userId={userId} />
 
       <div className="sc" style={{ maxWidth: 460, marginBottom: 10 }}>
         <div style={{ fontSize: 9, color: "#64748b", marginBottom: 10, textTransform: "uppercase" }}>Instruments</div>

@@ -91,7 +91,12 @@
 - **8ב.3** [x] UI ב-Settings (`AutoImportCard`) — טוקן אישי נוצר אוטומטית, כתובת webhook עם העתקה + Regenerate, והוראות TradingView + תבנית JSON.
 - **8ב.4** [x] טוקן נשמר ב-`user_settings.data.webhook_token` (עם fallback ל-localStorage).
 - **8ב.5** ⚠️ דורש הגדרה חד-פעמית ב-Vercel: `SUPABASE_SERVICE_ROLE_KEY` (+ `SUPABASE_URL`) ב-Env Vars.
-- **8ב.6** [ ] מחברים לפלטפורמות נוספות (NinjaTrader, ברוקרים דרך OAuth) — נדחה.
+- **8ב.6** [x] **מחבר Tradovate אמיתי (fills)** — טבלת `broker_connections` (`sql/0006`), צינור כתיבה משותף `api/_lib/trade.js` (גם TradingView וגם Tradovate עוברים דרכו), עוזר REST `api/_lib/tradovate.js`, endpoints `api/tradovate/connect.js` + `api/tradovate/sync.js`, כרטיס "חבר Tradovate" ב-Settings (Demo/Live, בדיקת חיבור, "סנכרן עכשיו", ניתוק).
+  - 8ב.6.1 [x] מניעת כפילויות דרך `external_id = tv-fp-<fillPairId>` (האינדקס הייחודי הקיים).
+  - 8ב.6.2 [x] תזמון אוטומטי דרך Supabase pg_cron (`sql/0007`) — כי Vercel חינמי מריץ cron רק פעם ביום.
+  - 8ב.6.3 ⚠️ דורש env ב-Vercel: `SUPABASE_SERVICE_ROLE_KEY` + `SYNC_SECRET`; ולחשבון Tradovate צריכה להיות "גישת API".
+  - 8ב.6.4 [ ] בדיקה חיה — ממתין לחשבון ממומן; בינתיים דרך Tradovate Demo או mock.
+- **8ב.7** [ ] מחברים נוספים (NinjaTrader add-on מקומי, OAuth ל-Tradovate) — בהמשך.
 
 ## 9. Backlog (לפי סדר עדיפות)
 
@@ -121,3 +126,4 @@
 - **סבב 8 — פלייבוק:** טאב אסטרטגיות עם CRUD מלא (טבלת `playbooks`).
 - **סבב 9 — הרצת מיגרציות + פיווט:** המשתמש הריץ `0004`+`0005` בהצלחה (יעד ופלייבוק חיים בענן). מצב כהה נדחה. עוברים לחלק חדש בפרויקט.
 - **סבב 10 — ייבוא אוטומטי (TradingView):** Webhook endpoint (`api/ingest.js`) + כרטיס Auto-Import ב-Settings — קישור אישי חד-פעמי, וכל עסקה שהאסטרטגיה מפעילה ב-TradingView נכנסת ליומן אוטומטית. נשאר: המשתמש מוסיף `SUPABASE_SERVICE_ROLE_KEY` ב-Vercel ומדביק את הקישור+JSON ב-alert.
+- **סבב 11 — מחבר Tradovate אמיתי:** ריפקטור לצינור כתיבה משותף (`api/_lib/trade.js`) + מחבר Tradovate מלא (טבלה, עוזר REST, connect/sync, כרטיס Settings, pg_cron). מושך עסקאות סגורות (fillPairs) עם P&L אמיתי ומכניס ליומן, עם מניעת כפילויות. TradingView נשאר למסלול הבק-טסט. בדיקה חיה ממתינה לחשבון ממומן (בינתיים Demo/mock). דחיפה ל-`main` חסומה במדיניות הארגון (GitHub App לא מחובר) — הפריסה ממתינה לאישור push ישיר או חיבור ה-App.
