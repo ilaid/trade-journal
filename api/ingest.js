@@ -34,8 +34,12 @@ export default async function handler(req, res) {
   const owner = rows && rows[0];
   if (!owner) return res.status(403).json({ error: "Unknown token" });
 
+  // When a backtest folder is "recording", imports land in it; else the live journal.
+  const activeFolder = owner.data?.active_backtest_folder_id ?? null;
+
   try {
     const result = await importTrade(supa, owner.user_id, {
+      backtestFolderId: activeFolder,
       symbol: body.symbol || body.ticker || body.instrument,
       direction: body.direction || body.action || body.side,
       entry: body.entry ?? body.entry_price ?? body.price ?? body.close,
