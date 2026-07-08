@@ -3,6 +3,7 @@ import { tPnL, f$, todayStr } from "../../lib/calc";
 import { MONTH_NAMES, BP } from "../../lib/constants";
 import { listFolders, createFolder, renameFolder, deleteFolder, getActiveFolder, setActiveFolder } from "../../lib/backtest";
 import Calendar from "./Calendar";
+import TradesList from "./TradesList";
 import DayPopup from "../DayPopup";
 
 // Build the month grid (same shape the Calendar component expects) from a set of trades.
@@ -38,6 +39,7 @@ export default function BacktestArea({ userId, trades, tags, instrumentMeta, day
   const [calMonth, setCalMonth] = useState(now.getMonth());
   const [dayPopup, setDayPopup] = useState(null);
   const [dayNoteVal, setDayNoteVal] = useState("");
+  const [folderTab, setFolderTab] = useState("calendar"); // calendar | list
 
   const refresh = async () => {
     setLoading(true);
@@ -184,22 +186,35 @@ export default function BacktestArea({ userId, trades, tags, instrumentMeta, day
                 </div>
               </div>
 
-              <Calendar
-                calYear={calYear}
-                calMonth={calMonth}
-                navMonth={navMonth}
-                goToday={() => {
-                  setCalYear(now.getFullYear());
-                  setCalMonth(now.getMonth());
-                }}
-                isCurMonth={calYear === now.getFullYear() && calMonth === now.getMonth()}
-                calDays={buildCalDays(viewTrades, dayNotes, calYear, calMonth)}
-                todayKey={todayStr()}
-                openDay={openDay}
-                mPnl={mSum.pnl}
-                mTrades={mTrades}
-                mWr={mSum.wr}
-              />
+              <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                <button onClick={() => setFolderTab("calendar")} className="pill" style={folderTab === "calendar" ? { background: "#5b52e0", color: "#fff", borderColor: "#5b52e0" } : {}}>
+                  לוח שנה
+                </button>
+                <button onClick={() => setFolderTab("list")} className="pill" style={folderTab === "list" ? { background: "#5b52e0", color: "#fff", borderColor: "#5b52e0" } : {}}>
+                  כל העסקאות ({viewTrades.length})
+                </button>
+              </div>
+
+              {folderTab === "calendar" ? (
+                <Calendar
+                  calYear={calYear}
+                  calMonth={calMonth}
+                  navMonth={navMonth}
+                  goToday={() => {
+                    setCalYear(now.getFullYear());
+                    setCalMonth(now.getMonth());
+                  }}
+                  isCurMonth={calYear === now.getFullYear() && calMonth === now.getMonth()}
+                  calDays={buildCalDays(viewTrades, dayNotes, calYear, calMonth)}
+                  todayKey={todayStr()}
+                  openDay={openDay}
+                  mPnl={mSum.pnl}
+                  mTrades={mTrades}
+                  mWr={mSum.wr}
+                />
+              ) : (
+                <TradesList trades={viewTrades} tags={tags} instrumentMeta={instrumentMeta} openEdit={onEditTrade} deleteTrade={onDeleteTrade} />
+              )}
             </>
           ) : (
             /* ── Folder list ── */
