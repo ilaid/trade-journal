@@ -262,8 +262,9 @@ export default function TradeJournal({ user, onSignOut }) {
     setModal("add");
   };
   // Add a trade directly into a backtest folder (historical entry, folder-scoped).
+  // Default the date to today so the trade always saves; it can be changed after.
   const openFolderTrade = (folderId) => {
-    setForm({ ...BLANK(CT, INST), date: "", time: "", isHistorical: true, backtestFolderId: folderId });
+    setForm({ ...BLANK(CT, INST), date: todayStr(), time: nowTime(), isHistorical: true, backtestFolderId: folderId });
     setStep(1);
     setEditId(null);
     setModal("add");
