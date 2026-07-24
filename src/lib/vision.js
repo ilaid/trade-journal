@@ -24,12 +24,24 @@ function fileToResizedDataUrl(file, maxDim = 1600) {
   });
 }
 
+// The user's per-level color convention, saved by the Settings card (via the
+// settings lib, which mirrors to localStorage). Sent so the model reads the
+// right levels even when the user's TradingView colors differ from the default.
+function savedColors() {
+  try {
+    const s = JSON.parse(localStorage.getItem("tj_settings")) || {};
+    return s.pos_colors || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function extractTradeFromImage(file) {
   const dataUrl = await fileToResizedDataUrl(file);
   const res = await fetch("/api/extract-trade", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ imageBase64: dataUrl, mimeType: "image/jpeg" }),
+    body: JSON.stringify({ imageBase64: dataUrl, mimeType: "image/jpeg", colors: savedColors() }),
   });
   let json;
   try {

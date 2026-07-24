@@ -47,12 +47,19 @@ export default async function handler(req, res) {
   // Accept a full data: URL too.
   if (data.startsWith("data:")) data = data.split(",").pop();
 
+  // Optional per-user color convention for the position tool.
+  const c = body.colors || null;
+  const colorHint =
+    c && (c.target || c.stop || c.entry)
+      ? `\n\nThis user's TradingView color convention (use it to identify each level): the take-profit/target zone is ${c.target || "?"}, the stop zone is ${c.stop || "?"}, and the entry line is ${c.entry || "?"}.`
+      : "";
+
   try {
     const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: mimeType, data } }] }],
+        contents: [{ parts: [{ text: PROMPT + colorHint }, { inline_data: { mime_type: mimeType, data } }] }],
         generationConfig: { response_mime_type: "application/json", temperature: 0 },
       }),
     });
