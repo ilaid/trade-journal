@@ -5,7 +5,7 @@
 //   GROQ_API_KEY   — free, no billing card required (https://console.groq.com/keys)
 //   GEMINI_API_KEY — Google AI Studio (free tier now needs account validation)
 // Optional: GROQ_MODEL, GEMINI_MODEL to override the defaults.
-const GROQ_MODEL = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
+const GROQ_MODEL = process.env.GROQ_MODEL || "meta-llama/llama-4-maverick-17b-128e-instruct";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
 const PROMPT = `You are reading a screenshot of a single futures trade, from a broker platform or from a TradingView chart.
