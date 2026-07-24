@@ -1,6 +1,11 @@
+import { useState } from "react";
 import { f$ } from "../lib/calc";
 import { DIRS, EMO, MIS, EVENTS, BP, BS } from "../lib/constants";
+import { extractTradeFromImage } from "../lib/vision";
 import ScreenshotUploader from "./ScreenshotUploader";
+
+// Micro symbols map to their parent instrument (+ micro contract) for auto-fill.
+const MICRO_MAP = { MNQ: "NQ", MES: "ES", MGC: "GC", MCL: "CL", MYM: "YM", M2K: "RTY", SIL: "SI" };
 
 export default function TradeModal({
   form, set, step, setStep, editId, closing,
@@ -8,6 +13,50 @@ export default function TradeModal({
   toggleEvent, toggleTag, toggleMistake,
   tags, CT, INST, totalPnL_form, onClose, onSave,
 }) {
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMsg, setAiMsg] = useState(null); // {kind:'ok'|'err', text}
+
+  const applyExtracted = (f) => {
+    if (f.date) set("date", f.date);
+    if (f.time) set("time", f.time);
+    if (f.direction === "Long" || f.direction === "Short") set("direction", f.direction);
+    if (f.entry != null) set("entryPrice", String(f.entry));
+    if (f.stop != null) set("sl", String(f.stop));
+    if (f.target != null) set("tp", String(f.target));
+    if (f.exit != null) updateExit(0, "exitPrice", String(f.exit));
+    if (f.symbol) {
+      const sym = String(f.symbol).toUpperCase();
+      let instrument = INST.includes(sym) ? sym : null;
+      let micro = false;
+      if (!instrument && MICRO_MAP[sym] && INST.includes(MICRO_MAP[sym])) {
+        instrument = MICRO_MAP[sym];
+        micro = true;
+      }
+      if (instrument) {
+        set("instrument", instrument);
+        const contracts = CT[instrument] || [];
+        const chosen = (micro && contracts.find((c) => c.label.toLowerCase().includes("micro"))) || contracts[0];
+        if (chosen) set("contractTypeId", chosen.id);
+      }
+    }
+  };
+
+  const onAiFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setAiBusy(true);
+    setAiMsg(null);
+    try {
+      const f = await extractTradeFromImage(file);
+      applyExtracted(f);
+      setAiMsg({ kind: "ok", text: "מולא מהתמונה. בדוק את השדות והוסף כמות חוזים." });
+    } catch (er) {
+      setAiMsg({ kind: "err", text: er.message || "לא הצלחתי לקרוא את התמונה" });
+    }
+    setAiBusy(false);
+  };
+
   return (
     <div className={`overlay${closing ? " cl" : ""}`} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="mbox">
@@ -26,6 +75,13 @@ export default function TradeModal({
         <div style={{ padding: "0 24px 24px" }}>
           {step === 1 && (
             <>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: aiBusy ? "#94a3b8" : "#5b52e0", cursor: aiBusy ? "default" : "pointer", border: "1px dashed #c7d2fe", borderRadius: 8, padding: "8px 14px", background: "#f5f3ff" }}>
+                  {aiBusy ? "קורא את התמונה…" : "📷 מלא מתמונה"}
+                  <input type="file" accept="image/*" onChange={onAiFile} disabled={aiBusy} style={{ display: "none" }} />
+                </label>
+                {aiMsg && <span style={{ fontSize: 11, color: aiMsg.kind === "ok" ? "#16a34a" : "#dc2626" }}>{aiMsg.text}</span>}
+              </div>
               <div style={{ fontSize: 9, color: "#64748b", marginBottom: 12, textTransform: "uppercase" }}>Trade Details</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
                 <div>
