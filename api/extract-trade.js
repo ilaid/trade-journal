@@ -5,16 +5,24 @@
 // Returns: { symbol, direction, entry, exit, stop, target, date, time } (nulls where unknown).
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
-const PROMPT = `You are reading a screenshot of a single futures trade (from a broker platform or TradingView).
-Extract these fields and return ONLY a JSON object, no prose:
-- "symbol": the futures root symbol only, uppercase, stripped of exchange prefix and month/expiry codes (e.g. "CME_MINI:ESU2025" -> "ES", "MNQ1!" -> "MNQ"). null if unclear.
-- "direction": "Long" or "Short" (buy = Long, sell = Short). null if unclear.
-- "entry": entry/fill price as a number. null if not visible.
-- "exit": exit/close price as a number. null if not visible.
+const PROMPT = `You are reading a screenshot of a single futures trade, from a broker platform or from a TradingView chart.
+Return ONLY a JSON object (no prose) with these fields:
+- "symbol": the futures root symbol only, uppercase, stripped of exchange prefix and month/expiry codes (e.g. "CME_MINI:ESU2025" -> "ES", "MNQ1!" -> "MNQ", "MNQU2026" -> "MNQ"). null if unclear.
+- "direction": "Long" or "Short". null if unclear.
+- "entry": entry price as a number. null if not visible.
+- "exit": the ACTUAL closed/filled exit price as a number. If the image only shows a plan (a position tool with target/stop but no realized close), set this to null — do NOT guess it.
 - "stop": stop-loss price as a number, or null.
-- "target": take-profit/target price as a number, or null.
+- "target": take-profit / target price as a number, or null.
 - "date": trade date as "YYYY-MM-DD", or null.
 - "time": trade time as "HH:MM" 24-hour, or null.
+
+IMPORTANT — TradingView "Long/Short Position" drawing tool. Many screenshots show this tool, which has three horizontal levels:
+- A middle line = the ENTRY (usually a white/neutral price label).
+- A colored profit zone (usually green/teal) on the target side; its far edge = the TARGET (take profit).
+- A colored loss zone (usually red/orange) on the stop side; its far edge = the STOP loss.
+Determine direction from geometry: if the green/profit zone is ABOVE the entry line -> "Long"; if the profit zone is BELOW the entry -> "Short".
+Read the actual numeric prices from the right-hand price axis labels that align with each level (e.g. teal label = target, white label = entry, orange label = stop).
+
 Do NOT include the number of contracts or position size. Return JSON only.`;
 
 export default async function handler(req, res) {
