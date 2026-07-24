@@ -1,9 +1,12 @@
-// Extract trade fields from a screenshot using Google Gemini (free tier vision).
+// Extract trade fields from a screenshot using a vision model.
 //
-// POST /api/extract-trade   body: { imageBase64, mimeType }
-// Env (Vercel): GEMINI_API_KEY  (free key from https://aistudio.google.com/apikey)
-// Returns: { symbol, direction, entry, exit, stop, target, date, time } (nulls where unknown).
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+// POST /api/extract-trade   body: { imageBase64 (data URL ok), mimeType, colors? }
+// Providers (first configured wins):
+//   GROQ_API_KEY   — free, no billing card required (https://console.groq.com/keys)
+//   GEMINI_API_KEY — Google AI Studio (free tier now needs account validation)
+// Optional: GROQ_MODEL, GEMINI_MODEL to override the defaults.
+const GROQ_MODEL = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
 const PROMPT = `You are reading a screenshot of a single futures trade, from a broker platform or from a TradingView chart.
 Return ONLY a JSON object (no prose) with these fields:
@@ -25,11 +28,42 @@ Read the actual numeric prices from the right-hand price axis labels that align 
 
 Do NOT include the number of contracts or position size. Return JSON only.`;
 
+async function callGroq(dataUrl, text) {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url: dataUrl } }] }],
+      response_format: { type: "json_object" },
+      temperature: 0,
+    }),
+  });
+  const j = await res.json();
+  if (!res.ok) throw new Error(j?.error?.message || `Groq HTTP ${res.status}`);
+  return j?.choices?.[0]?.message?.content || "";
+}
+
+async function callGemini(base64, mimeType, text) {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
+      generationConfig: { response_mime_type: "application/json", temperature: 0 },
+    }),
+  });
+  const j = await res.json();
+  if (!res.ok) throw new Error(j?.error?.message || `Gemini HTTP ${res.status}`);
+  return j?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
 
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return res.status(500).json({ error: "Server not configured: add GEMINI_API_KEY in Vercel env vars." });
+  const hasGroq = !!process.env.GROQ_API_KEY;
+  const hasGemini = !!process.env.GEMINI_API_KEY;
+  if (!hasGroq && !hasGemini) return res.status(500).json({ error: "Server not configured: add GROQ_API_KEY (or GEMINI_API_KEY) in Vercel env vars." });
 
   let body = req.body;
   if (typeof body === "string") {
@@ -41,36 +75,21 @@ export default async function handler(req, res) {
   }
   body = body || {};
 
-  let data = body.imageBase64 || "";
+  let raw = body.imageBase64 || "";
   const mimeType = body.mimeType || "image/png";
-  if (!data) return res.status(400).json({ error: "Missing image" });
-  // Accept a full data: URL too.
-  if (data.startsWith("data:")) data = data.split(",").pop();
+  if (!raw) return res.status(400).json({ error: "Missing image" });
+  const dataUrl = raw.startsWith("data:") ? raw : `data:${mimeType};base64,${raw}`;
+  const base64 = raw.startsWith("data:") ? raw.split(",").pop() : raw;
 
-  // Optional per-user color convention for the position tool.
   const c = body.colors || null;
-  const colorHint =
-    c && (c.target || c.stop || c.entry)
-      ? `\n\nThis user's TradingView color convention (use it to identify each level): the take-profit/target zone is ${c.target || "?"}, the stop zone is ${c.stop || "?"}, and the entry line is ${c.entry || "?"}.`
-      : "";
+  const colorHint = c && (c.target || c.stop || c.entry) ? `\n\nThis user's TradingView color convention (use it to identify each level): the take-profit/target zone is ${c.target || "?"}, the stop zone is ${c.stop || "?"}, and the entry line is ${c.entry || "?"}.` : "";
+  const text = PROMPT + colorHint;
 
   try {
-    const gRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: PROMPT + colorHint }, { inline_data: { mime_type: mimeType, data } }] }],
-        generationConfig: { response_mime_type: "application/json", temperature: 0 },
-      }),
-    });
-    const gJson = await gRes.json();
-    if (!gRes.ok) {
-      return res.status(502).json({ error: "Vision request failed", detail: gJson?.error?.message || `HTTP ${gRes.status}` });
-    }
-    const text = gJson?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const out = hasGroq ? await callGroq(dataUrl, text) : await callGemini(base64, mimeType, text);
     let fields;
     try {
-      fields = JSON.parse(text);
+      fields = JSON.parse(out);
     } catch {
       return res.status(502).json({ error: "Could not read the image. Try a clearer screenshot." });
     }
@@ -85,6 +104,6 @@ export default async function handler(req, res) {
       time: fields.time ?? null,
     });
   } catch (e) {
-    return res.status(500).json({ error: String(e.message || e) });
+    return res.status(502).json({ error: "Vision request failed", detail: String(e.message || e) });
   }
 }
