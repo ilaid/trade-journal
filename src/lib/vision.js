@@ -49,6 +49,6 @@ export async function extractTradeFromImage(file) {
   } catch {
     json = {};
   }
-  if (!res.ok) throw new Error(json.error || `Extraction failed (${res.status})`);
+  if (!res.ok) throw new Error([json.error, json.detail].filter(Boolean).join(" — ") || `Extraction failed (${res.status})`);
   return json;
 }
