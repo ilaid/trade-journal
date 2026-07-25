@@ -10,9 +10,6 @@ const GROQ_CANDIDATES = [
   process.env.GROQ_MODEL,
   "qwen/qwen3.6-27b",
   "meta-llama/llama-4-maverick-17b-128e-instruct",
-  "meta-llama/llama-4-scout-17b-16e-instruct",
-  "llama-3.2-90b-vision-preview",
-  "llama-3.2-11b-vision-preview",
 ].filter(Boolean);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
@@ -69,12 +66,12 @@ async function groqChat(model, messages, extra) {
 
 async function callGroqModel(dataUrl, text, model) {
   const messages = [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url: dataUrl } }] }];
-  // reasoning_format:"parsed" keeps the <think> block out of message.content; retry without it if unsupported.
+  // Prefer reasoning_format:"hidden" (Qwen emits only the final JSON); fall back to a plain
+  // call (its <think> block is stripped later) if that parameter isn't accepted.
   try {
-    return await groqChat(model, messages, { reasoning_format: "parsed" });
-  } catch (e) {
-    if (/reasoning_format|parameter|unsupported|invalid|400/i.test(String(e.message))) return await groqChat(model, messages, {});
-    throw e;
+    return await groqChat(model, messages, { reasoning_format: "hidden" });
+  } catch {
+    return await groqChat(model, messages, {});
   }
 }
 
