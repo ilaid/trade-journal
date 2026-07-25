@@ -49,6 +49,24 @@ function parseLooseJson(text) {
   }
 }
 
+// GitHub Models — free GPT-4o vision via a GitHub token (not a reasoning model,
+// returns clean JSON). https://github.com/marketplace/models
+const GITHUB_MODELS_MODEL = process.env.GITHUB_MODELS_MODEL || "openai/gpt-4o";
+async function callGithubModels(dataUrl, text) {
+  const res = await fetch("https://models.github.ai/inference/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.GITHUB_MODELS_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: GITHUB_MODELS_MODEL,
+      messages: [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url: dataUrl } }] }],
+      temperature: 0,
+    }),
+  });
+  const j = await res.json();
+  if (!res.ok) throw new Error(j?.error?.message || j?.message || `GitHub Models HTTP ${res.status}`);
+  return j?.choices?.[0]?.message?.content || "";
+}
+
 async function groqChat(model, messages, extra) {
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -107,9 +125,10 @@ async function callGemini(base64, mimeType, text) {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST" });
 
+  const hasGithub = !!process.env.GITHUB_MODELS_TOKEN;
   const hasGroq = !!process.env.GROQ_API_KEY;
   const hasGemini = !!process.env.GEMINI_API_KEY;
-  if (!hasGroq && !hasGemini) return res.status(500).json({ error: "Server not configured: add GROQ_API_KEY (or GEMINI_API_KEY) in Vercel env vars." });
+  if (!hasGithub && !hasGroq && !hasGemini) return res.status(500).json({ error: "Server not configured: add GITHUB_MODELS_TOKEN (or GROQ_API_KEY / GEMINI_API_KEY) in Vercel env vars." });
 
   let body = req.body;
   if (typeof body === "string") {
@@ -132,7 +151,7 @@ export default async function handler(req, res) {
   const text = PROMPT + colorHint;
 
   try {
-    const out = hasGroq ? await callGroq(dataUrl, text) : await callGemini(base64, mimeType, text);
+    const out = hasGithub ? await callGithubModels(dataUrl, text) : hasGroq ? await callGroq(dataUrl, text) : await callGemini(base64, mimeType, text);
     const fields = parseLooseJson(out);
     if (!fields) return res.status(502).json({ error: "Could not read the image", detail: String(out || "(empty reply)").slice(0, 1500) });
     return res.status(200).json({
