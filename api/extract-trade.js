@@ -36,6 +36,21 @@ Read the actual numeric prices from the right-hand price axis labels that align 
 
 Do NOT include the number of contracts or position size. Return JSON only.`;
 
+// Pull a JSON object out of a model reply, tolerating code fences / stray text.
+function parseLooseJson(text) {
+  if (!text) return null;
+  let s = String(text).trim();
+  s = s.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const a = s.indexOf("{");
+  const b = s.lastIndexOf("}");
+  if (a >= 0 && b > a) s = s.slice(a, b + 1);
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
 async function callGroqModel(dataUrl, text, model) {
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -43,7 +58,6 @@ async function callGroqModel(dataUrl, text, model) {
     body: JSON.stringify({
       model,
       messages: [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url: dataUrl } }] }],
-      response_format: { type: "json_object" },
       temperature: 0,
     }),
   });
@@ -120,12 +134,8 @@ export default async function handler(req, res) {
 
   try {
     const out = hasGroq ? await callGroq(dataUrl, text) : await callGemini(base64, mimeType, text);
-    let fields;
-    try {
-      fields = JSON.parse(out);
-    } catch {
-      return res.status(502).json({ error: "Could not read the image. Try a clearer screenshot." });
-    }
+    const fields = parseLooseJson(out);
+    if (!fields) return res.status(502).json({ error: "Could not read the image. Try a clearer screenshot." });
     return res.status(200).json({
       symbol: fields.symbol ?? null,
       direction: fields.direction ?? null,
