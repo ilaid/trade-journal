@@ -5,7 +5,15 @@
 //   GROQ_API_KEY   — free, no billing card required (https://console.groq.com/keys)
 //   GEMINI_API_KEY — Google AI Studio (free tier now needs account validation)
 // Optional: GROQ_MODEL, GEMINI_MODEL to override the defaults.
-const GROQ_MODEL = process.env.GROQ_MODEL || "meta-llama/llama-4-maverick-17b-128e-instruct";
+// Tried in order; the first the account can actually use wins.
+const GROQ_CANDIDATES = [
+  process.env.GROQ_MODEL,
+  "meta-llama/llama-4-maverick-17b-128e-instruct",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "llama-3.2-90b-vision-preview",
+  "llama-3.2-11b-vision-preview",
+  "llama-3.2-11b-vision",
+].filter(Boolean);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
 const PROMPT = `You are reading a screenshot of a single futures trade, from a broker platform or from a TradingView chart.
@@ -28,12 +36,12 @@ Read the actual numeric prices from the right-hand price axis labels that align 
 
 Do NOT include the number of contracts or position size. Return JSON only.`;
 
-async function callGroq(dataUrl, text) {
+async function callGroqModel(dataUrl, text, model) {
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: GROQ_MODEL,
+      model,
       messages: [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url: dataUrl } }] }],
       response_format: { type: "json_object" },
       temperature: 0,
@@ -42,6 +50,31 @@ async function callGroq(dataUrl, text) {
   const j = await res.json();
   if (!res.ok) throw new Error(j?.error?.message || `Groq HTTP ${res.status}`);
   return j?.choices?.[0]?.message?.content || "";
+}
+
+async function groqModelIds() {
+  try {
+    const r = await fetch("https://api.groq.com/openai/v1/models", { headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}` } });
+    const j = await r.json();
+    return (j?.data || []).map((m) => m.id);
+  } catch {
+    return [];
+  }
+}
+
+// Try each candidate; skip ones the account can't use, surface the model list if none work.
+async function callGroq(dataUrl, text) {
+  let lastErr;
+  for (const model of GROQ_CANDIDATES) {
+    try {
+      return await callGroqModel(dataUrl, text, model);
+    } catch (e) {
+      lastErr = e;
+      if (!/exist|access|not found|decommission|deprecat|model/i.test(String(e.message))) throw e;
+    }
+  }
+  const avail = await groqModelIds();
+  throw new Error(`${lastErr?.message || "no candidate model worked"} — available to your key: ${avail.join(", ") || "(none returned)"}`);
 }
 
 async function callGemini(base64, mimeType, text) {
