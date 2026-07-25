@@ -135,7 +135,7 @@ export default async function handler(req, res) {
   try {
     const out = hasGroq ? await callGroq(dataUrl, text) : await callGemini(base64, mimeType, text);
     const fields = parseLooseJson(out);
-    if (!fields) return res.status(502).json({ error: "Could not read the image. Try a clearer screenshot." });
+    if (!fields) return res.status(502).json({ error: "Could not read the image", detail: String(out || "(empty reply)").slice(0, 400) });
     return res.status(200).json({
       symbol: fields.symbol ?? null,
       direction: fields.direction ?? null,
