@@ -56,20 +56,26 @@ function parseLooseJson(text) {
   }
 }
 
-async function callGroqModel(dataUrl, text, model) {
+async function groqChat(model, messages, extra) {
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url: dataUrl } }] }],
-      temperature: 0,
-      max_tokens: 2048, // room for a thinking model to reason AND emit the JSON
-    }),
+    body: JSON.stringify({ model, messages, temperature: 0, max_tokens: 4096, ...extra }),
   });
   const j = await res.json();
   if (!res.ok) throw new Error(j?.error?.message || `Groq HTTP ${res.status}`);
   return j?.choices?.[0]?.message?.content || "";
+}
+
+async function callGroqModel(dataUrl, text, model) {
+  const messages = [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url: dataUrl } }] }];
+  // reasoning_format:"parsed" keeps the <think> block out of message.content; retry without it if unsupported.
+  try {
+    return await groqChat(model, messages, { reasoning_format: "parsed" });
+  } catch (e) {
+    if (/reasoning_format|parameter|unsupported|invalid|400/i.test(String(e.message))) return await groqChat(model, messages, {});
+    throw e;
+  }
 }
 
 async function groqModelIds() {
@@ -141,7 +147,7 @@ export default async function handler(req, res) {
   try {
     const out = hasGroq ? await callGroq(dataUrl, text) : await callGemini(base64, mimeType, text);
     const fields = parseLooseJson(out);
-    if (!fields) return res.status(502).json({ error: "Could not read the image", detail: String(out || "(empty reply)").slice(0, 400) });
+    if (!fields) return res.status(502).json({ error: "Could not read the image", detail: String(out || "(empty reply)").slice(0, 1500) });
     return res.status(200).json({
       symbol: fields.symbol ?? null,
       direction: fields.direction ?? null,
