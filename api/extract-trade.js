@@ -34,7 +34,9 @@ IMPORTANT — TradingView "Long/Short Position" drawing tool. Many screenshots s
 Determine direction from geometry: if the green/profit zone is ABOVE the entry line -> "Long"; if the profit zone is BELOW the entry -> "Short".
 Read the actual numeric prices from the right-hand price axis labels that align with each level (e.g. teal label = target, white label = entry, orange label = stop).
 
-Do NOT include the number of contracts or position size. Return JSON only.`;
+Do NOT include the number of contracts or position size. Return JSON only.
+
+/no_think`;
 
 // Pull a JSON object out of a model reply, tolerating code fences / stray text /
 // the <think> reasoning blocks that thinking models (e.g. Qwen) emit first.
