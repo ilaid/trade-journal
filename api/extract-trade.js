@@ -8,11 +8,11 @@
 // Tried in order; the first the account can actually use wins.
 const GROQ_CANDIDATES = [
   process.env.GROQ_MODEL,
+  "qwen/qwen3.6-27b",
   "meta-llama/llama-4-maverick-17b-128e-instruct",
   "meta-llama/llama-4-scout-17b-16e-instruct",
   "llama-3.2-90b-vision-preview",
   "llama-3.2-11b-vision-preview",
-  "llama-3.2-11b-vision",
 ].filter(Boolean);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
