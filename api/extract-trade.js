@@ -36,10 +36,13 @@ Read the actual numeric prices from the right-hand price axis labels that align 
 
 Do NOT include the number of contracts or position size. Return JSON only.`;
 
-// Pull a JSON object out of a model reply, tolerating code fences / stray text.
+// Pull a JSON object out of a model reply, tolerating code fences / stray text /
+// the <think> reasoning blocks that thinking models (e.g. Qwen) emit first.
 function parseLooseJson(text) {
   if (!text) return null;
-  let s = String(text).trim();
+  let s = String(text);
+  s = s.replace(/<think>[\s\S]*?<\/think>/gi, ""); // closed reasoning block
+  s = s.trim();
   s = s.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
   const a = s.indexOf("{");
   const b = s.lastIndexOf("}");
@@ -59,6 +62,7 @@ async function callGroqModel(dataUrl, text, model) {
       model,
       messages: [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url: dataUrl } }] }],
       temperature: 0,
+      max_tokens: 2048, // room for a thinking model to reason AND emit the JSON
     }),
   });
   const j = await res.json();
