@@ -80,7 +80,20 @@ async function groqChat(model, messages, extra) {
 
 async function callGroqModel(dataUrl, text, model) {
   const messages = [{ role: "user", content: [{ type: "text", text }, { type: "image_url", image_url: { url: dataUrl } }] }];
-  return groqChat(model, messages, {}); // plain call; the <think> block is stripped when parsing
+  // Qwen over-reasons; try to suppress/hide the thinking so we get clean JSON.
+  // Return the first attempt whose reply actually parses; else the last reply (for diagnostics).
+  const attempts = [{ reasoning_effort: "none" }, { reasoning_format: "hidden" }, {}];
+  let last = "";
+  for (const extra of attempts) {
+    try {
+      const out = await groqChat(model, messages, extra);
+      last = out || last;
+      if (parseLooseJson(out)) return out;
+    } catch {
+      // parameter not supported / transient — try the next variant
+    }
+  }
+  return last;
 }
 
 async function groqModelIds() {
@@ -151,7 +164,7 @@ export default async function handler(req, res) {
   const text = PROMPT + colorHint;
 
   try {
-    const out = hasGithub ? await callGithubModels(dataUrl, text) : hasGroq ? await callGroq(dataUrl, text) : await callGemini(base64, mimeType, text);
+    const out = hasGroq ? await callGroq(dataUrl, text) : hasGithub ? await callGithubModels(dataUrl, text) : await callGemini(base64, mimeType, text);
     const fields = parseLooseJson(out);
     if (!fields) return res.status(502).json({ error: "Could not read the image", detail: String(out || "(empty reply)").slice(0, 1500) });
     return res.status(200).json({
