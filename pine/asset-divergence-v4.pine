@@ -1,0 +1,261 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+// © Ilai - Asset Divergence Detector (PCP / PSP) v4.1
+// Pine Script V5
+//
+// v4.1 CHANGELOG:
+//  - YM rule: YM only creates a divergence when it shows STRENGTH
+//    (YM up while ES and/or NQ are down). YM down vs. others up is ignored.
+//  - ES vs NQ unchanged: any direction mismatch counts.
+//  - Swing is now detected on EVERY included asset, not only the chart symbol.
+//    Swing on my asset  -> solid  triangle (▲ / ▼)
+//    Swing on another   -> hollow triangle (△ / ▽)
+//  - New "pending" marker (•) for a PCP bar whose swing verdict is not in yet.
+//  - Markers moved from label.new to plotchar: tiny, no 300-label ceiling.
+//  - Removed the PCP/PSP mode selector and the majority-vote direction logic
+//    (it could never resolve with only two assets, e.g. on 1m).
+//    Signal direction now comes from the swing type: high = bearish, low = bullish.
+//
+// v4.0:
+//  - Added 1m timeframe (ES & NQ only, no YM)
+//  - Removed Dashboard Table, Gap Engine & Boxes
+
+//@version=5
+indicator("Asset Divergence | PCP & PSP v4", shorttitle="ADI v4",
+     overlay       = true,
+     max_bars_back = 5000)
+
+// ══════════════════════════════════════════════════════════════
+//  INPUTS
+// ══════════════════════════════════════════════════════════════
+
+grp_mode   = "═══  Detection  ═══"
+i_ignore_doji = input.bool(false, title="Ignore Doji (close == open)",
+     tooltip="Off (default): a doji counts as a different direction and can create a PCP.\nOn: a doji is neutral and never creates a PCP.",
+     group=grp_mode)
+
+grp_assets = "═══  Asset Selection  ═══"
+i_asset_grp = input.string("Standard", title="Asset Group",
+     options=["Standard", "Micro"],
+     tooltip="Standard = NQ1! / ES1! / YM1!  |  Micro = MNQ1! / MES1! / MYM1!\nCompare within one group to avoid tick-size mismatch.",
+     group=grp_assets)
+i_use_nq   = input.bool(true,  title="Include NQ / MNQ", group=grp_assets)
+i_use_es   = input.bool(true,  title="Include ES / MES",  group=grp_assets)
+i_use_ym   = input.bool(true,  title="Include YM / MYM (strength only)",
+     tooltip="YM creates a divergence only when it closes UP while ES and/or NQ close DOWN.",
+     group=grp_assets)
+
+grp_tf     = "═══  Timeframe Filter  ═══"
+i_tf_1m    = input.bool(true,  title="1m (ES & NQ Only)",  group=grp_tf)
+i_tf_5m    = input.bool(true,  title="5m (ES, NQ & YM)",   group=grp_tf)
+i_tf_15m   = input.bool(true,  title="15m (ES, NQ & YM)",  group=grp_tf)
+i_tf_1h    = input.bool(true,  title="1H (ES, NQ & YM)",   group=grp_tf)
+i_tf_4h    = input.bool(true,  title="4H (ES, NQ & YM)",   group=grp_tf)
+i_tf_1d    = input.bool(true,  title="Daily (ES, NQ & YM)", group=grp_tf)
+
+grp_col    = "═══  Markers & Colors  ═══"
+i_col_bull = input.color(color.new(#00e5ff, 0), title="Bullish Signal",  group=grp_col)
+i_col_bear = input.color(color.new(#ff1744, 0), title="Bearish Signal",  group=grp_col)
+i_ext_transp = input.int(45, title="Other-Asset Marker Fade", minval=0, maxval=90,
+     tooltip="Transparency of the hollow markers drawn when the swing happened on another asset, not on the chart symbol.",
+     group=grp_col)
+i_show_pending = input.bool(true, title="Show Pending PCP Marker (•)",
+     tooltip="A PCP bar is only resolved once the NEXT bar closes. Until then it is marked with a dim dot.",
+     group=grp_col)
+i_col_pend = input.color(color.new(#9e9e9e, 25), title="Pending PCP", group=grp_col)
+i_show_pcp_bars = input.bool(false, title="Tint All PCP Bars", group=grp_col)
+i_col_pcp  = input.color(color.new(#ffd54f, 80), title="PCP Bar Tint", group=grp_col)
+
+// ══════════════════════════════════════════════════════════════
+//  TIMEFRAME GATE
+// ══════════════════════════════════════════════════════════════
+
+tf_str = timeframe.period
+
+is_1m  = tf_str == "1"
+is_5m  = tf_str == "5"
+is_15m = tf_str == "15"
+is_1h  = tf_str == "60"
+is_4h  = tf_str == "240"
+is_1d  = tf_str == "D"
+
+tf_allowed = (is_1m  and i_tf_1m)  or
+             (is_5m  and i_tf_5m)  or
+             (is_15m and i_tf_15m) or
+             (is_1h  and i_tf_1h)  or
+             (is_4h  and i_tf_4h)  or
+             (is_1d  and i_tf_1d)
+
+// ══════════════════════════════════════════════════════════════
+//  SECURITY FETCHES
+//  lookahead_off → proper backtest support for all timeframes
+//  gaps_off      → no na bars when the external symbol has no tick
+// ══════════════════════════════════════════════════════════════
+
+f_sec(sym) =>
+    [o, h, l, c] = request.security(sym, timeframe.period,
+         [open, high, low, close],
+         lookahead = barmerge.lookahead_off,
+         gaps      = barmerge.gaps_off)
+    [o, h, l, c]
+
+// Standard contracts
+[nq_o,  nq_h,  nq_l,  nq_c]  = f_sec("NQ1!")
+[es_o,  es_h,  es_l,  es_c]  = f_sec("ES1!")
+[ym_o,  ym_h,  ym_l,  ym_c]  = f_sec("YM1!")
+
+// Micro contracts
+[mnq_o, mnq_h, mnq_l, mnq_c] = f_sec("MNQ1!")
+[mes_o, mes_h, mes_l, mes_c] = f_sec("MES1!")
+[mym_o, mym_h, mym_l, mym_c] = f_sec("MYM1!")
+
+// ══════════════════════════════════════════════════════════════
+//  ACTIVE GROUP SELECTION
+//  Route each pair to the chosen group so comparison is apples-to-apples
+// ══════════════════════════════════════════════════════════════
+
+use_micro = i_asset_grp == "Micro"
+
+a_nq_o = use_micro ? mnq_o : nq_o
+a_nq_h = use_micro ? mnq_h : nq_h
+a_nq_l = use_micro ? mnq_l : nq_l
+a_nq_c = use_micro ? mnq_c : nq_c
+
+a_es_o = use_micro ? mes_o : es_o
+a_es_h = use_micro ? mes_h : es_h
+a_es_l = use_micro ? mes_l : es_l
+a_es_c = use_micro ? mes_c : es_c
+
+a_ym_o = use_micro ? mym_o : ym_o
+a_ym_h = use_micro ? mym_h : ym_h
+a_ym_l = use_micro ? mym_l : ym_l
+a_ym_c = use_micro ? mym_c : ym_c
+
+// ══════════════════════════════════════════════════════════════
+//  CANDLE DIRECTION  (+1 Bull / -1 Bear / 0 Doji)
+// ══════════════════════════════════════════════════════════════
+
+f_dir(o, c) =>
+    c > o ? 1 : c < o ? -1 : 0
+
+nq_dir = f_dir(a_nq_o, a_nq_c)
+es_dir = f_dir(a_es_o, a_es_c)
+ym_dir = f_dir(a_ym_o, a_ym_c)
+
+// ══════════════════════════════════════════════════════════════
+//  PCP DETECTION
+//
+//  ES vs NQ : any direction mismatch is a divergence.
+//  YM       : asymmetric — YM only matters when it shows STRENGTH,
+//             i.e. YM closes UP while ES and/or NQ close DOWN.
+//             YM down against the other two up is NOT a signal.
+//  1m       : YM is excluded entirely.
+// ══════════════════════════════════════════════════════════════
+
+nq_ok = i_use_nq and (not i_ignore_doji or nq_dir != 0)
+es_ok = i_use_es and (not i_ignore_doji or es_dir != 0)
+ym_ok = i_use_ym and not is_1m and (not i_ignore_doji or ym_dir != 0)
+
+div_es_nq = nq_ok and es_ok and (nq_dir != es_dir)
+
+div_ym = ym_ok and ym_dir > 0 and
+         ((es_ok and es_dir < 0) or (nq_ok and nq_dir < 0))
+
+is_pcp = div_es_nq or div_ym
+
+// ══════════════════════════════════════════════════════════════
+//  PSP DETECTION  — 3-Bar Swing, Zero Repaint, No Flicker
+//
+//  Timeline:   bar[2] ←  bar[1]  ← bar[0]
+//                       (SWING)    (confirms, current CLOSED bar)
+//
+//  The swing is checked on EVERY included asset, not only on the chart
+//  symbol, so a swing that happens on NQ while the chart shows ES is
+//  still marked — just with a hollow marker so it is never confused
+//  with a swing on the bars in front of you.
+//
+//  Gate on barstate.isconfirmed: while bar[0] is still forming,
+//  isconfirmed = false → nothing is drawn prematurely.
+// ══════════════════════════════════════════════════════════════
+
+f_sw_hi(h) => h[1] > h[2] and h[1] > h[0]
+f_sw_lo(l) => l[1] < l[2] and l[1] < l[0]
+
+// The chart symbol itself
+own_hi = f_sw_hi(high)
+own_lo = f_sw_lo(low)
+
+// The other assets. YM's swing only counts if YM actually took part in
+// the divergence on that bar (its strength rule held).
+ext_hi = (i_use_nq   and f_sw_hi(a_nq_h)) or
+         (i_use_es   and f_sw_hi(a_es_h)) or
+         (div_ym[1]  and f_sw_hi(a_ym_h))
+
+ext_lo = (i_use_nq   and f_sw_lo(a_nq_l)) or
+         (i_use_es   and f_sw_lo(a_es_l)) or
+         (div_ym[1]  and f_sw_lo(a_ym_l))
+
+confirmed = barstate.isconfirmed
+pcp_at_1  = is_pcp[1]          // immutable — bar[1] is fully closed
+
+psp_base     = tf_allowed and confirmed and pcp_at_1
+
+psp_bear_own = psp_base and own_hi                  // swing HIGH here     → bearish
+psp_bear_ext = psp_base and ext_hi and not own_hi   // swing HIGH elsewhere → bearish
+psp_bull_own = psp_base and own_lo                  // swing LOW here      → bullish
+psp_bull_ext = psp_base and ext_lo and not own_lo   // swing LOW elsewhere  → bullish
+
+// ══════════════════════════════════════════════════════════════
+//  PSP MARKERS
+//  offset = -1 places the marker on bar[1] — the bar that was resolved.
+//  Solid  ▲ / ▼ → the swing is on the asset you are looking at.
+//  Hollow △ / ▽ → the swing is on another asset only.
+// ══════════════════════════════════════════════════════════════
+
+c_bear_ext = color.new(i_col_bear, i_ext_transp)
+c_bull_ext = color.new(i_col_bull, i_ext_transp)
+
+plotchar(psp_bear_own ? 1 : na, title="PSP Bear — Own Asset",
+     char="▲", location=location.abovebar, color=i_col_bear,
+     offset=-1, size=size.tiny)
+
+plotchar(psp_bear_ext ? 1 : na, title="PSP Bear — Other Asset",
+     char="△", location=location.abovebar, color=c_bear_ext,
+     offset=-1, size=size.tiny)
+
+plotchar(psp_bull_own ? 1 : na, title="PSP Bull — Own Asset",
+     char="▼", location=location.belowbar, color=i_col_bull,
+     offset=-1, size=size.tiny)
+
+plotchar(psp_bull_ext ? 1 : na, title="PSP Bull — Other Asset",
+     char="▽", location=location.belowbar, color=c_bull_ext,
+     offset=-1, size=size.tiny)
+
+// ══════════════════════════════════════════════════════════════
+//  PENDING MARKER
+//  A PCP bar is only resolved once the NEXT bar closes, so both the
+//  live bar and the last closed bar are still undecided. That is
+//  exactly "not barstate.isconfirmed", which makes the dot clean itself:
+//  the moment the bar closes the dot disappears and the verdict (a
+//  triangle, or nothing) takes its place. Historical bars are always
+//  confirmed, so no stale dots are left behind on the chart.
+// ══════════════════════════════════════════════════════════════
+
+pending = tf_allowed and i_show_pending and not confirmed
+
+plotchar(pending and is_pcp    ? 1 : na, title="PCP Pending — Live Bar",
+     char="•", location=location.abovebar, color=i_col_pend, size=size.tiny)
+
+plotchar(pending and is_pcp[1] ? 1 : na, title="PCP Pending — Previous Bar",
+     char="•", location=location.abovebar, color=i_col_pend,
+     offset=-1, size=size.tiny)
+
+// ══════════════════════════════════════════════════════════════
+//  OPTIONAL PCP BAR TINT  (off by default)
+// ══════════════════════════════════════════════════════════════
+
+barcolor(tf_allowed and i_show_pcp_bars and is_pcp ? i_col_pcp : na,
+     title="PCP Bar Tint")
+
+// ══════════════════════════════════════════════════════════════
+//  END OF SCRIPT
+// ══════════════════════════════════════════════════════════════
