@@ -543,7 +543,7 @@ export default function TradeJournal({ user, onSignOut }) {
 
         {tab === "trades" && <TradesList trades={journalTrades} tags={tags} instrumentMeta={instrumentMeta} openEdit={openEdit} deleteTrade={deleteTrade} />}
 
-        {tab === "stats" && <Analytics trades={trades} totalAll={totalAll} winRate={winRate} grossW={grossW} grossL={grossL} byDay={byDay} byWeek={byWeek} byMonth={byMonth} setCalYear={setCalYear} setCalMonth={setCalMonth} setTab={setTab} />}
+        {tab === "stats" && <Analytics trades={journalTrades} totalAll={totalAll} winRate={winRate} grossW={grossW} grossL={grossL} byDay={byDay} byWeek={byWeek} byMonth={byMonth} setCalYear={setCalYear} setCalMonth={setCalMonth} setTab={setTab} />}
 
         {tab === "tags" && <Setups tagStats={tagStats} setModal={setModal} deleteTag={deleteTag} />}
 
