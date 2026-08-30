@@ -18,6 +18,7 @@ import Setups from "./tabs/Setups";
 import Playbook from "./tabs/Playbook";
 import Settings from "./tabs/Settings";
 import BacktestArea from "./tabs/BacktestArea";
+import InvestingArea from "./tabs/InvestingArea";
 
 const TRADE_SELECT = `
   id, user_id, is_historical, trade_date, trade_time, instrument_id, contract_id,
@@ -84,6 +85,7 @@ export default function TradeJournal({ user, onSignOut }) {
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
   const [dayPopup, setDayPopup] = useState(null);
   const [backtestOpen, setBacktestOpen] = useState(false);
+  const [investOpen, setInvestOpen] = useState(false);
   const [dayNoteVal, setDayNoteVal] = useState("");
   const [monthlyGoal, setMonthlyGoal] = useState(1000);
 
@@ -480,6 +482,9 @@ export default function TradeJournal({ user, onSignOut }) {
           <button onClick={() => setBacktestOpen(true)} title="Backtest area" style={{ background: "linear-gradient(135deg,#ede9fe,#ddd6fe)", border: "1px solid #7c3aed", borderRadius: 8, color: "#7c3aed", padding: "7px 12px", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}>
             ⏪ Backtest
           </button>
+          <button onClick={() => setInvestOpen(true)} title="Investing / swing portfolio" style={{ background: "linear-gradient(135deg,#dcfce7,#bbf7d0)", border: "1px solid #16a34a", borderRadius: 8, color: "#15803d", padding: "7px 12px", cursor: "pointer", fontSize: 11, fontFamily: "'Inter',system-ui,sans-serif" }}>
+            📈 השקעות
+          </button>
           <button onClick={openAdd} style={{ ...BP, padding: "7px 14px", fontSize: 11 }}>
             + Trade
           </button>
@@ -570,6 +575,8 @@ export default function TradeJournal({ user, onSignOut }) {
           onClose={() => setBacktestOpen(false)}
         />
       )}
+
+      {investOpen && <InvestingArea userId={user.id} onClose={() => setInvestOpen(false)} />}
 
       {modal === "add" && (
         <TradeModal
