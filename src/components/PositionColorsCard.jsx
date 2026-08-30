@@ -4,16 +4,22 @@ import { loadSettings, saveSetting } from "../lib/settings";
 // Named colors the user can assign to each position level. The names (not hex)
 // are what we send to the vision model, so keep them plain and recognizable.
 const PALETTE = [
+  { name: "black", hex: "#111827" },
   { name: "white", hex: "#ffffff" },
   { name: "gray", hex: "#9ca3af" },
   { name: "green", hex: "#16a34a" },
   { name: "teal", hex: "#14b8a6" },
+  { name: "cyan", hex: "#06b6d4" },
   { name: "blue", hex: "#3b82f6" },
+  { name: "navy", hex: "#1e3a8a" },
   { name: "purple", hex: "#8b5cf6" },
+  { name: "magenta", hex: "#d946ef" },
+  { name: "pink", hex: "#ec4899" },
   { name: "red", hex: "#ef4444" },
   { name: "orange", hex: "#f59e0b" },
   { name: "yellow", hex: "#eab308" },
-  { name: "pink", hex: "#ec4899" },
+  { name: "lime", hex: "#84cc16" },
+  { name: "brown", hex: "#92400e" },
 ];
 
 export const DEFAULT_POS_COLORS = { entry: "white", target: "teal", stop: "orange" };
