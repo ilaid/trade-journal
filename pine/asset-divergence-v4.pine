@@ -1,23 +1,30 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v4.1
+// © Ilai - Asset Divergence Detector (PCP / PSP) v4.2
 // Pine Script V5
 //
-// v4.1 CHANGELOG:
-//  - YM rule: YM only creates a divergence when it shows STRENGTH
-//    (YM up while ES and/or NQ are down). YM down vs. others up is ignored.
-//  - ES vs NQ unchanged: any direction mismatch counts.
-//  - Swing is now detected on EVERY included asset, not only the chart symbol.
-//    Swing on my asset  -> solid  triangle (▲ / ▼)
-//    Swing on another   -> hollow triangle (△ / ▽)
-//  - New "pending" marker (•) for a PCP bar whose swing verdict is not in yet.
-//  - Markers moved from label.new to plotchar: tiny, no 300-label ceiling.
-//  - Removed the PCP/PSP mode selector and the majority-vote direction logic
-//    (it could never resolve with only two assets, e.g. on 1m).
-//    Signal direction now comes from the swing type: high = bearish, low = bullish.
+// v4.2 CHANGELOG:
+//  - New Weekly category: same PCP/PSP principle, full three-asset treatment.
+//  - New corner line showing which PSP breaks are LIVE right now on the higher
+//    timeframes (1H / 4H / 1D / 1W), without drawing anything extra on the bars.
+//      * Only timeframes ABOVE the chart's are shown. request.security on a
+//        timeframe below the chart returns one sample per chart bar, which would
+//        corrupt the carried state the "level taken" rule depends on.
+//      * A break stays live until its level is taken OR a new swing replaces it
+//        on that same timeframe — whichever comes first.
+//      * Each record ends with the age of the swing in bars of its own timeframe,
+//        so an old, no-longer-relevant break is obvious at a glance.
+//  - Symbols are now three input.symbol fields instead of a Standard/Micro switch.
+//    The old switch made TradingView load all six contracts on every chart while
+//    only three were ever used.
+//  - One alert covering every timeframe, fired on any change to the line.
 //
-// v4.0:
-//  - Added 1m timeframe (ES & NQ only, no YM)
-//  - Removed Dashboard Table, Gap Engine & Boxes
+// v4.1:
+//  - YM only creates a divergence when it shows STRENGTH (up while ES and/or NQ
+//    are down). ES vs NQ unchanged: any direction mismatch counts.
+//  - Swing detected on EVERY included asset: solid ▲/▼ when the swing is on the
+//    chart symbol, hollow △/▽ when it is on another asset only.
+//  - Pending marker (•) while a PCP bar's swing verdict is not in yet.
+//  - Markers moved from label.new to plotchar; removed the broken majority vote.
 
 //@version=5
 indicator("Asset Divergence | PCP & PSP v4", shorttitle="ADI v4",
@@ -33,24 +40,25 @@ i_ignore_doji = input.bool(false, title="Ignore Doji (close == open)",
      tooltip="Off (default): a doji counts as a different direction and can create a PCP.\nOn: a doji is neutral and never creates a PCP.",
      group=grp_mode)
 
-grp_assets = "═══  Asset Selection  ═══"
-i_asset_grp = input.string("Standard", title="Asset Group",
-     options=["Standard", "Micro"],
-     tooltip="Standard = NQ1! / ES1! / YM1!  |  Micro = MNQ1! / MES1! / MYM1!\nCompare within one group to avoid tick-size mismatch.",
-     group=grp_assets)
-i_use_nq   = input.bool(true,  title="Include NQ / MNQ", group=grp_assets)
-i_use_es   = input.bool(true,  title="Include ES / MES",  group=grp_assets)
-i_use_ym   = input.bool(true,  title="Include YM / MYM (strength only)",
+grp_assets = "═══  Assets  ═══"
+i_sym_nq   = input.symbol("NQ1!", title="NQ Symbol", group=grp_assets,
+     tooltip="Switch all three fields to MNQ1! / MES1! / MYM1! to work on the micros.\nKeep all three in the same contract family — mixing tick sizes distorts the comparison.")
+i_sym_es   = input.symbol("ES1!", title="ES Symbol", group=grp_assets)
+i_sym_ym   = input.symbol("YM1!", title="YM Symbol", group=grp_assets)
+i_use_nq   = input.bool(true,  title="Include NQ", group=grp_assets)
+i_use_es   = input.bool(true,  title="Include ES", group=grp_assets)
+i_use_ym   = input.bool(true,  title="Include YM (strength only)",
      tooltip="YM creates a divergence only when it closes UP while ES and/or NQ close DOWN.",
      group=grp_assets)
 
-grp_tf     = "═══  Timeframe Filter  ═══"
+grp_tf     = "═══  Chart Timeframe Filter  ═══"
 i_tf_1m    = input.bool(true,  title="1m (ES & NQ Only)",  group=grp_tf)
-i_tf_5m    = input.bool(true,  title="5m (ES, NQ & YM)",   group=grp_tf)
-i_tf_15m   = input.bool(true,  title="15m (ES, NQ & YM)",  group=grp_tf)
-i_tf_1h    = input.bool(true,  title="1H (ES, NQ & YM)",   group=grp_tf)
-i_tf_4h    = input.bool(true,  title="4H (ES, NQ & YM)",   group=grp_tf)
-i_tf_1d    = input.bool(true,  title="Daily (ES, NQ & YM)", group=grp_tf)
+i_tf_5m    = input.bool(true,  title="5m",   group=grp_tf)
+i_tf_15m   = input.bool(true,  title="15m",  group=grp_tf)
+i_tf_1h    = input.bool(true,  title="1H",   group=grp_tf)
+i_tf_4h    = input.bool(true,  title="4H",   group=grp_tf)
+i_tf_1d    = input.bool(true,  title="Daily",  group=grp_tf)
+i_tf_1w    = input.bool(true,  title="Weekly", group=grp_tf)
 
 grp_col    = "═══  Markers & Colors  ═══"
 i_col_bull = input.color(color.new(#00e5ff, 0), title="Bullish Signal",  group=grp_col)
@@ -65,8 +73,23 @@ i_col_pend = input.color(color.new(#9e9e9e, 25), title="Pending PCP", group=grp_
 i_show_pcp_bars = input.bool(false, title="Tint All PCP Bars", group=grp_col)
 i_col_pcp  = input.color(color.new(#ffd54f, 80), title="PCP Bar Tint", group=grp_col)
 
+grp_mtf    = "═══  Higher Timeframes  ═══"
+i_mtf_on   = input.bool(true, title="Show Higher-Timeframe Line",
+     tooltip="A single line in the corner listing the PSP breaks that are live right now on 1H / 4H / 1D / 1W.\nOnly timeframes above the chart's are listed.",
+     group=grp_mtf)
+i_mtf_pos  = input.string("Bottom Left", title="Line Position",
+     options=["Bottom Left", "Top Left", "Bottom Center", "Bottom Right"], group=grp_mtf)
+i_inv_wick = input.bool(false, title="Invalidate on Wick",
+     tooltip="Off (default): a break dies when a bar of its own timeframe CLOSES beyond the swing level.\nOn: a wick beyond the level is enough.",
+     group=grp_mtf)
+i_pnl_on   = input.bool(false, title="Show Timeframe Panel", group=grp_mtf)
+i_pnl_pos  = input.string("Bottom Right", title="Panel Position",
+     options=["Bottom Right", "Top Right", "Bottom Left", "Top Left"], group=grp_mtf)
+i_col_neut = input.color(color.new(#ffffff, 15), title="Neutral Text", group=grp_mtf)
+i_mtf_alert = input.bool(true, title="Alert on Line Change", group=grp_mtf)
+
 // ══════════════════════════════════════════════════════════════
-//  TIMEFRAME GATE
+//  TIMEFRAME GATE  (chart drawing only — the corner line is independent)
 // ══════════════════════════════════════════════════════════════
 
 tf_str = timeframe.period
@@ -77,65 +100,39 @@ is_15m = tf_str == "15"
 is_1h  = tf_str == "60"
 is_4h  = tf_str == "240"
 is_1d  = tf_str == "D"
+is_1w  = tf_str == "W"
 
 tf_allowed = (is_1m  and i_tf_1m)  or
              (is_5m  and i_tf_5m)  or
              (is_15m and i_tf_15m) or
              (is_1h  and i_tf_1h)  or
              (is_4h  and i_tf_4h)  or
-             (is_1d  and i_tf_1d)
+             (is_1d  and i_tf_1d)  or
+             (is_1w  and i_tf_1w)
 
 // ══════════════════════════════════════════════════════════════
-//  SECURITY FETCHES
+//  CANDLE DIRECTION  (+1 Bull / -1 Bear / 0 Doji)
+// ══════════════════════════════════════════════════════════════
+
+f_dir(float o, float c) =>
+    c > o ? 1 : c < o ? -1 : 0
+
+// ══════════════════════════════════════════════════════════════
+//  CHART-TIMEFRAME FETCHES
 //  lookahead_off → proper backtest support for all timeframes
 //  gaps_off      → no na bars when the external symbol has no tick
 // ══════════════════════════════════════════════════════════════
 
-f_sec(sym) =>
+f_sec(simple string sym) =>
     [o, h, l, c] = request.security(sym, timeframe.period,
          [open, high, low, close],
          lookahead = barmerge.lookahead_off,
          gaps      = barmerge.gaps_off)
     [o, h, l, c]
 
-// Standard contracts
-[nq_o,  nq_h,  nq_l,  nq_c]  = f_sec("NQ1!")
-[es_o,  es_h,  es_l,  es_c]  = f_sec("ES1!")
-[ym_o,  ym_h,  ym_l,  ym_c]  = f_sec("YM1!")
-
-// Micro contracts
-[mnq_o, mnq_h, mnq_l, mnq_c] = f_sec("MNQ1!")
-[mes_o, mes_h, mes_l, mes_c] = f_sec("MES1!")
-[mym_o, mym_h, mym_l, mym_c] = f_sec("MYM1!")
-
-// ══════════════════════════════════════════════════════════════
-//  ACTIVE GROUP SELECTION
-//  Route each pair to the chosen group so comparison is apples-to-apples
-// ══════════════════════════════════════════════════════════════
-
-use_micro = i_asset_grp == "Micro"
-
-a_nq_o = use_micro ? mnq_o : nq_o
-a_nq_h = use_micro ? mnq_h : nq_h
-a_nq_l = use_micro ? mnq_l : nq_l
-a_nq_c = use_micro ? mnq_c : nq_c
-
-a_es_o = use_micro ? mes_o : es_o
-a_es_h = use_micro ? mes_h : es_h
-a_es_l = use_micro ? mes_l : es_l
-a_es_c = use_micro ? mes_c : es_c
-
-a_ym_o = use_micro ? mym_o : ym_o
-a_ym_h = use_micro ? mym_h : ym_h
-a_ym_l = use_micro ? mym_l : ym_l
-a_ym_c = use_micro ? mym_c : ym_c
-
-// ══════════════════════════════════════════════════════════════
-//  CANDLE DIRECTION  (+1 Bull / -1 Bear / 0 Doji)
-// ══════════════════════════════════════════════════════════════
-
-f_dir(o, c) =>
-    c > o ? 1 : c < o ? -1 : 0
+[a_nq_o, a_nq_h, a_nq_l, a_nq_c] = f_sec(i_sym_nq)
+[a_es_o, a_es_h, a_es_l, a_es_c] = f_sec(i_sym_es)
+[a_ym_o, a_ym_h, a_ym_l, a_ym_c] = f_sec(i_sym_ym)
 
 nq_dir = f_dir(a_nq_o, a_nq_c)
 es_dir = f_dir(a_es_o, a_es_c)
@@ -172,43 +169,35 @@ is_pcp = div_es_nq or div_ym
 //  symbol, so a swing that happens on NQ while the chart shows ES is
 //  still marked — just with a hollow marker so it is never confused
 //  with a swing on the bars in front of you.
-//
-//  Gate on barstate.isconfirmed: while bar[0] is still forming,
-//  isconfirmed = false → nothing is drawn prematurely.
 // ══════════════════════════════════════════════════════════════
 
-f_sw_hi(h) => h[1] > h[2] and h[1] > h[0]
-f_sw_lo(l) => l[1] < l[2] and l[1] < l[0]
+f_sw_hi(float h) => h[1] > h[2] and h[1] > h[0]
+f_sw_lo(float l) => l[1] < l[2] and l[1] < l[0]
 
-// The chart symbol itself
 own_hi = f_sw_hi(high)
 own_lo = f_sw_lo(low)
 
-// The other assets. YM's swing only counts if YM actually took part in
-// the divergence on that bar (its strength rule held).
-ext_hi = (i_use_nq   and f_sw_hi(a_nq_h)) or
-         (i_use_es   and f_sw_hi(a_es_h)) or
-         (div_ym[1]  and f_sw_hi(a_ym_h))
+ext_hi = (i_use_nq  and f_sw_hi(a_nq_h)) or
+         (i_use_es  and f_sw_hi(a_es_h)) or
+         (div_ym[1] and f_sw_hi(a_ym_h))
 
-ext_lo = (i_use_nq   and f_sw_lo(a_nq_l)) or
-         (i_use_es   and f_sw_lo(a_es_l)) or
-         (div_ym[1]  and f_sw_lo(a_ym_l))
+ext_lo = (i_use_nq  and f_sw_lo(a_nq_l)) or
+         (i_use_es  and f_sw_lo(a_es_l)) or
+         (div_ym[1] and f_sw_lo(a_ym_l))
 
 confirmed = barstate.isconfirmed
 pcp_at_1  = is_pcp[1]          // immutable — bar[1] is fully closed
 
 psp_base     = tf_allowed and confirmed and pcp_at_1
 
-psp_bear_own = psp_base and own_hi                  // swing HIGH here     → bearish
-psp_bear_ext = psp_base and ext_hi and not own_hi   // swing HIGH elsewhere → bearish
-psp_bull_own = psp_base and own_lo                  // swing LOW here      → bullish
-psp_bull_ext = psp_base and ext_lo and not own_lo   // swing LOW elsewhere  → bullish
+psp_bear_own = psp_base and own_hi
+psp_bear_ext = psp_base and ext_hi and not own_hi
+psp_bull_own = psp_base and own_lo
+psp_bull_ext = psp_base and ext_lo and not own_lo
 
 // ══════════════════════════════════════════════════════════════
 //  PSP MARKERS
 //  offset = -1 places the marker on bar[1] — the bar that was resolved.
-//  Solid  ▲ / ▼ → the swing is on the asset you are looking at.
-//  Hollow △ / ▽ → the swing is on another asset only.
 // ══════════════════════════════════════════════════════════════
 
 c_bear_ext = color.new(i_col_bear, i_ext_transp)
@@ -230,16 +219,8 @@ plotchar(psp_bull_ext ? 1 : na, title="PSP Bull — Other Asset",
      char="▽", location=location.belowbar, color=c_bull_ext,
      offset=-1, size=size.tiny)
 
-// ══════════════════════════════════════════════════════════════
-//  PENDING MARKER
-//  A PCP bar is only resolved once the NEXT bar closes, so both the
-//  live bar and the last closed bar are still undecided. That is
-//  exactly "not barstate.isconfirmed", which makes the dot clean itself:
-//  the moment the bar closes the dot disappears and the verdict (a
-//  triangle, or nothing) takes its place. Historical bars are always
-//  confirmed, so no stale dots are left behind on the chart.
-// ══════════════════════════════════════════════════════════════
-
+// ── Pending: self-clearing, because a bar is undecided exactly while
+//    barstate.isconfirmed is false. Historical bars are always confirmed.
 pending = tf_allowed and i_show_pending and not confirmed
 
 plotchar(pending and is_pcp    ? 1 : na, title="PCP Pending — Live Bar",
@@ -249,12 +230,306 @@ plotchar(pending and is_pcp[1] ? 1 : na, title="PCP Pending — Previous Bar",
      char="•", location=location.abovebar, color=i_col_pend,
      offset=-1, size=size.tiny)
 
-// ══════════════════════════════════════════════════════════════
-//  OPTIONAL PCP BAR TINT  (off by default)
-// ══════════════════════════════════════════════════════════════
-
 barcolor(tf_allowed and i_show_pcp_bars and is_pcp ? i_col_pcp : na,
      title="PCP Bar Tint")
+
+// ══════════════════════════════════════════════════════════════
+//  HIGHER TIMEFRAMES
+//
+//  request.security returns RAW NUMBERS only — never a UDT and never an
+//  array. Returning an object would make TradingView keep a copy per chart
+//  bar per timeframe and blow the memory limit ("Memory limits exceeded",
+//  which compiles cleanly and simply fails to load).
+//
+//  Every history offset is taken INSIDE the expression, so it is evaluated
+//  in that timeframe's own context and a bar only enters the calculation
+//  once it has closed. Zero repaint.
+//
+//  Index map in the requested timeframe's context:
+//      [1] = last CLOSED bar      (confirms the swing, and carries the
+//                                  close used for the "level taken" test)
+//      [2] = the SWING bar
+//      [3] = the bar before it
+//
+//  The call count is fixed in the source (4 timeframes × 3 assets = 12,
+//  plus 3 for the chart timeframe) and never varies with the chart.
+//
+//  Limitation worth knowing: the state is built by stepping through the chart's
+//  own history, so a timeframe can only be tracked as far back as the chart
+//  reaches. A 1m chart holds days, not weeks, so 1W will usually be empty
+//  there. View the weekly and daily rows from a 15m chart or higher.
+// ══════════════════════════════════════════════════════════════
+
+type AB
+    float o2 = na
+    float c2 = na
+    float c1 = na
+    float h1 = na
+    float h2 = na
+    float h3 = na
+    float l1 = na
+    float l2 = na
+    float l3 = na
+
+f_load(AB b, simple string sym, simple string tf) =>
+    [t, o2, c2, c1, h1, h2, h3, l1, l2, l3] = request.security(sym, tf,
+         [time[1], open[2], close[2], close[1],
+          high[1], high[2], high[3], low[1], low[2], low[3]],
+         lookahead = barmerge.lookahead_off,
+         gaps      = barmerge.gaps_off)
+    b.o2 := o2
+    b.c2 := c2
+    b.c1 := c1
+    b.h1 := h1
+    b.h2 := h2
+    b.h3 := h3
+    b.l1 := l1
+    b.l2 := l2
+    b.l3 := l3
+    t
+
+// One reusable object per asset per timeframe — allocated once, updated in
+// place, so nothing accumulates across bars.
+var AB n1h = AB.new()
+var AB e1h = AB.new()
+var AB y1h = AB.new()
+var AB n4h = AB.new()
+var AB e4h = AB.new()
+var AB y4h = AB.new()
+var AB n1d = AB.new()
+var AB e1d = AB.new()
+var AB y1d = AB.new()
+var AB n1w = AB.new()
+var AB e1w = AB.new()
+var AB y1w = AB.new()
+
+tn1h = f_load(n1h, i_sym_nq, "60")
+te1h = f_load(e1h, i_sym_es, "60")
+ty1h = f_load(y1h, i_sym_ym, "60")
+
+tn4h = f_load(n4h, i_sym_nq, "240")
+te4h = f_load(e4h, i_sym_es, "240")
+ty4h = f_load(y4h, i_sym_ym, "240")
+
+tn1d = f_load(n1d, i_sym_nq, "D")
+te1d = f_load(e1d, i_sym_es, "D")
+ty1d = f_load(y1d, i_sym_ym, "D")
+
+tn1w = f_load(n1w, i_sym_nq, "W")
+te1w = f_load(e1w, i_sym_es, "W")
+ty1w = f_load(y1w, i_sym_ym, "W")
+
+// The three contracts share a session, so any enabled one is the clock.
+t1h = i_use_nq ? tn1h : i_use_es ? te1h : ty1h
+t4h = i_use_nq ? tn4h : i_use_es ? te4h : ty4h
+t1d = i_use_nq ? tn1d : i_use_es ? te1d : ty1d
+t1w = i_use_nq ? tn1w : i_use_es ? te1w : ty1w
+
+// ══════════════════════════════════════════════════════════════
+//  PER-TIMEFRAME STATE
+//  Lives in var on the CHART's timeline, which is where state belongs.
+//  The rule against objects applies to what request.security returns.
+// ══════════════════════════════════════════════════════════════
+
+type MtfSt
+    int    lastT = 0     // time of the bar already stepped — blocks a double step
+    int    dir   = 0     // -1 bearish · 0 none · 1 bullish
+    string src   = ""    // P = ES/NQ pair · Y = YM strength · B = both
+    string who   = ""    // which assets made the swing
+    int    age   = 0     // age in bars of this timeframe
+    float  lNq   = na    // swing level per asset that made a swing
+    float  lEs   = na
+    float  lYm   = na
+
+// Has the level been taken? Close beyond it by default, wick beyond it on request.
+f_taken(float lvl, int dir, float hi, float lo, float cl) =>
+    na(lvl) ? false : dir == -1 ? (i_inv_wick ? hi > lvl : cl > lvl) : (i_inv_wick ? lo < lvl : cl < lvl)
+
+// One step per closed bar of that timeframe. Order is what produces
+// "level taken OR new swing, whichever comes first": the stale break is
+// retired first, then a fresh swing overwrites whatever is left.
+f_step(MtfSt s, int t, AB n, AB e, AB y) =>
+    if not na(t) and t != s.lastT
+        s.lastT := t
+
+        // ── 1. age, then invalidation against the bar that just closed ──
+        if s.dir != 0
+            s.age := s.age + 1
+            tkN = f_taken(s.lNq, s.dir, n.h1, n.l1, n.c1)
+            tkE = f_taken(s.lEs, s.dir, e.h1, e.l1, e.c1)
+            tkY = f_taken(s.lYm, s.dir, y.h1, y.l1, y.c1)
+            if tkN or tkE or tkY
+                s.dir := 0
+                s.age := 0
+                s.src := ""
+                s.who := ""
+                s.lNq := na
+                s.lEs := na
+                s.lYm := na
+
+        // ── 2. a new PSP on the swing bar, [2] ──
+        dn  = f_dir(n.o2, n.c2)
+        de  = f_dir(e.o2, e.c2)
+        dy  = f_dir(y.o2, y.c2)
+        okN = i_use_nq and not na(n.c2) and (not i_ignore_doji or dn != 0)
+        okE = i_use_es and not na(e.c2) and (not i_ignore_doji or de != 0)
+        okY = i_use_ym and not na(y.c2) and (not i_ignore_doji or dy != 0)
+
+        divP = okN and okE and dn != de
+        divY = okY and dy > 0 and ((okE and de < 0) or (okN and dn < 0))
+
+        if divP or divY
+            hiN = i_use_nq and n.h2 > n.h3 and n.h2 > n.h1
+            hiE = i_use_es and e.h2 > e.h3 and e.h2 > e.h1
+            hiY = divY     and y.h2 > y.h3 and y.h2 > y.h1
+            loN = i_use_nq and n.l2 < n.l3 and n.l2 < n.l1
+            loE = i_use_es and e.l2 < e.l3 and e.l2 < e.l1
+            loY = divY     and y.l2 < y.l3 and y.l2 < y.l1
+
+            nHi = (hiN ? 1 : 0) + (hiE ? 1 : 0) + (hiY ? 1 : 0)
+            nLo = (loN ? 1 : 0) + (loE ? 1 : 0) + (loY ? 1 : 0)
+
+            if nHi > 0 or nLo > 0
+                bear = nHi >= nLo          // tie goes to the swing high
+                gN   = bear ? hiN : loN
+                gE   = bear ? hiE : loE
+                gY   = bear ? hiY : loY
+
+                w = ""
+                if gN
+                    w := w + "NQ"
+                if gE
+                    w := w + (w == "" ? "" : "·") + "ES"
+                if gY
+                    w := w + (w == "" ? "" : "·") + "YM"
+
+                s.dir := bear ? -1 : 1
+                s.age := 1
+                s.src := divP and divY ? "B" : divP ? "P" : "Y"
+                s.who := w
+                s.lNq := gN ? (bear ? n.h2 : n.l2) : na
+                s.lEs := gE ? (bear ? e.h2 : e.l2) : na
+                s.lYm := gY ? (bear ? y.h2 : y.l2) : na
+    s.dir
+
+var MtfSt st1h = MtfSt.new()
+var MtfSt st4h = MtfSt.new()
+var MtfSt st1d = MtfSt.new()
+var MtfSt st1w = MtfSt.new()
+
+d1h = f_step(st1h, t1h, n1h, e1h, y1h)
+d4h = f_step(st4h, t4h, n4h, e4h, y4h)
+d1d = f_step(st1d, t1d, n1d, e1d, y1d)
+d1w = f_step(st1w, t1w, n1w, e1w, y1w)
+
+// ══════════════════════════════════════════════════════════════
+//  CORNER LINE
+//  Record layout:   <TF> <arrow><source> <assets> <age>
+//      1W ▼P NQ·ES 8   →  weekly bearish, ES/NQ pair, both swung, 8 bars old
+//  Only timeframes ABOVE the chart's are listed: the chart's own is already
+//  drawn on the bars, and anything below it cannot be tracked accurately.
+// ══════════════════════════════════════════════════════════════
+
+f_rec(MtfSt s, string nm) =>
+    s.dir == 0 ? "" : nm + " " + (s.dir < 0 ? "▼" : "▲") + s.src + " " + s.who + " " + str.tostring(s.age)
+
+chartSec = timeframe.in_seconds(timeframe.period)
+sh1h = timeframe.in_seconds("60")  > chartSec
+sh4h = timeframe.in_seconds("240") > chartSec
+sh1d = timeframe.in_seconds("D")   > chartSec
+sh1w = timeframe.in_seconds("W")   > chartSec
+
+r1w = sh1w ? f_rec(st1w, "1W") : ""
+r1d = sh1d ? f_rec(st1d, "1D") : ""
+r4h = sh4h ? f_rec(st4h, "4H") : ""
+r1h = sh1h ? f_rec(st1h, "1H") : ""
+
+f_join(string acc, string add) =>
+    add == "" ? acc : acc == "" ? add : acc + "   " + add
+
+mark = f_join(f_join(f_join(r1w, r1d), r4h), r1h)
+
+mtfPos = i_mtf_pos == "Bottom Left"   ? position.bottom_left   :
+         i_mtf_pos == "Top Left"      ? position.top_left      :
+         i_mtf_pos == "Bottom Center" ? position.bottom_center :
+                                        position.bottom_right
+
+// Five cells, not one joined string: a cell carries a single text colour, and
+// each timeframe has to be painted in its own direction's colour.
+var table mtfTbl = table.new(mtfPos, 5, 1, border_width = 0)
+
+c_clear = color.new(color.black, 100)
+
+if barstate.islast and i_mtf_on
+    table.cell(mtfTbl, 0, 0, mark == "" ? "" : "ADI", text_color = i_col_neut,
+         text_size = size.small, bgcolor = c_clear)
+
+    col = 1
+    if r1w != ""
+        table.cell(mtfTbl, col, 0, r1w, text_color = d1w < 0 ? i_col_bear : i_col_bull,
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if r1d != ""
+        table.cell(mtfTbl, col, 0, r1d, text_color = d1d < 0 ? i_col_bear : i_col_bull,
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if r4h != ""
+        table.cell(mtfTbl, col, 0, r4h, text_color = d4h < 0 ? i_col_bear : i_col_bull,
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if r1h != ""
+        table.cell(mtfTbl, col, 0, r1h, text_color = d1h < 0 ? i_col_bear : i_col_bull,
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if col <= 4
+        for k = col to 4
+            table.cell(mtfTbl, k, 0, "", bgcolor = c_clear)
+
+// ══════════════════════════════════════════════════════════════
+//  PANEL  (optional, off by default)
+//  ▶ marks a timeframe at or below the chart's — that one is drawn on the
+//  bars themselves rather than tracked here.
+// ══════════════════════════════════════════════════════════════
+
+pnlPos = i_pnl_pos == "Bottom Right" ? position.bottom_right :
+         i_pnl_pos == "Top Right"    ? position.top_right    :
+         i_pnl_pos == "Bottom Left"  ? position.bottom_left  :
+                                       position.top_left
+
+var table pnlTbl = table.new(pnlPos, 2, 5, border_width = 0)
+
+// "▶" marks a timeframe at or below the chart's: that one is drawn on the bars
+// themselves rather than tracked here.
+f_stat(MtfSt s, bool shown) =>
+    not shown ? "▶" : s.dir == 0 ? "—" : (s.dir < 0 ? "▼" : "▲") + s.src + " " + s.who + " " + str.tostring(s.age)
+
+f_statCol(int dir, bool shown) =>
+    not shown or dir == 0 ? i_col_neut : dir < 0 ? i_col_bear : i_col_bull
+
+if barstate.islast and i_pnl_on
+    table.cell(pnlTbl, 0, 0, "ADI", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, 0, "",    text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 0, 1, "1W", text_color = f_statCol(d1w, sh1w), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, 1, f_stat(st1w, sh1w), text_color = f_statCol(d1w, sh1w), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 0, 2, "1D", text_color = f_statCol(d1d, sh1d), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, 2, f_stat(st1d, sh1d), text_color = f_statCol(d1d, sh1d), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 0, 3, "4H", text_color = f_statCol(d4h, sh4h), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, 3, f_stat(st4h, sh4h), text_color = f_statCol(d4h, sh4h), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 0, 4, "1H", text_color = f_statCol(d1h, sh1h), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, 4, f_stat(st1h, sh1h), text_color = f_statCol(d1h, sh1h), text_size = size.small, bgcolor = c_clear)
+
+// ══════════════════════════════════════════════════════════════
+//  ALERT
+//  One alert covers every timeframe. It fires on any change to the line —
+//  a new break, a replaced one, or an invalidation. Alerts run on
+//  TradingView's servers, so a single alert placed on one chart keeps
+//  working with the chart closed.
+// ══════════════════════════════════════════════════════════════
+
+var string mtfPrev = ""
+if i_mtf_alert and i_mtf_on and mark != mtfPrev and mark != ""
+    alert("ADI: " + mark, alert.freq_once_per_bar)
+mtfPrev := mark
 
 // ══════════════════════════════════════════════════════════════
 //  END OF SCRIPT
