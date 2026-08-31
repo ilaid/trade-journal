@@ -1,14 +1,20 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v4.2.1
+// © Ilai - Asset Divergence Detector (PCP / PSP) v4.3
 // Pine Script V5
+//
+// v4.3:
+//  - Settings are now in Hebrew. The option strings are compared in code, so
+//    they and the comparisons were translated together.
+//  - New padding input for the corner line and the panel: empty spacer rows
+//    lift the content off the chart edge, so it no longer collides with
+//    another indicator's line sitting in the same corner.
 //
 // v4.2.1:
 //  - Fixed a syntax error: the position ternary wrapped onto a line indented
 //    by 40 spaces, and Pine reads any multiple of four as the start of a block.
-//  - Line and panel placement are now two inputs each, height and side, so
-//    either can sit top / middle / bottom on left / center / right.
+//  - Line and panel placement are two inputs each, height and side.
 //
-// v4.2 CHANGELOG:
+// v4.2:
 //  - New Weekly category: same PCP/PSP principle, full three-asset treatment.
 //  - New corner line showing which PSP breaks are LIVE right now on the higher
 //    timeframes (1H / 4H / 1D / 1W), without drawing anything extra on the bars.
@@ -19,9 +25,7 @@
 //        on that same timeframe — whichever comes first.
 //      * Each record ends with the age of the swing in bars of its own timeframe,
 //        so an old, no-longer-relevant break is obvious at a glance.
-//  - Symbols are now three input.symbol fields instead of a Standard/Micro switch.
-//    The old switch made TradingView load all six contracts on every chart while
-//    only three were ever used.
+//  - Symbols are three input.symbol fields instead of a Standard/Micro switch.
 //  - One alert covering every timeframe, fired on any change to the line.
 //
 // v4.1:
@@ -39,64 +43,70 @@ indicator("Asset Divergence | PCP & PSP v4", shorttitle="ADI v4",
 
 // ══════════════════════════════════════════════════════════════
 //  INPUTS
+//  Hebrew labels. Every option string below is also compared in code —
+//  translating one without the other silently breaks the setting.
 // ══════════════════════════════════════════════════════════════
 
-grp_mode   = "═══  Detection  ═══"
-i_ignore_doji = input.bool(false, title="Ignore Doji (close == open)",
-     tooltip="Off (default): a doji counts as a different direction and can create a PCP.\nOn: a doji is neutral and never creates a PCP.",
+grp_mode   = "═══  זיהוי  ═══"
+i_ignore_doji = input.bool(false, title="התעלם מדוג'י (סגירה = פתיחה)",
+     tooltip="כבוי (ברירת מחדל): דוג'י נחשב כיוון שונה ויכול ליצור PCP.\nדלוק: דוג'י ניטרלי ולעולם לא יוצר PCP.",
      group=grp_mode)
 
-grp_assets = "═══  Assets  ═══"
-i_sym_nq   = input.symbol("NQ1!", title="NQ Symbol", group=grp_assets,
-     tooltip="Switch all three fields to MNQ1! / MES1! / MYM1! to work on the micros.\nKeep all three in the same contract family — mixing tick sizes distorts the comparison.")
-i_sym_es   = input.symbol("ES1!", title="ES Symbol", group=grp_assets)
-i_sym_ym   = input.symbol("YM1!", title="YM Symbol", group=grp_assets)
-i_use_nq   = input.bool(true,  title="Include NQ", group=grp_assets)
-i_use_es   = input.bool(true,  title="Include ES", group=grp_assets)
-i_use_ym   = input.bool(true,  title="Include YM (strength only)",
-     tooltip="YM creates a divergence only when it closes UP while ES and/or NQ close DOWN.",
+grp_assets = "═══  נכסים  ═══"
+i_sym_nq   = input.symbol("NQ1!", title="סימבול NQ", group=grp_assets,
+     tooltip="למעבר למיקרו — החלף את שלושת השדות ל-MNQ1! / MES1! / MYM1!\nחשוב לשמור על שלושתם מאותה משפחת חוזים; ערבוב גדלי טיק מעוות את ההשוואה.")
+i_sym_es   = input.symbol("ES1!", title="סימבול ES", group=grp_assets)
+i_sym_ym   = input.symbol("YM1!", title="סימבול YM", group=grp_assets)
+i_use_nq   = input.bool(true,  title="כלול NQ", group=grp_assets)
+i_use_es   = input.bool(true,  title="כלול ES", group=grp_assets)
+i_use_ym   = input.bool(true,  title="כלול YM (חוזקה בלבד)",
+     tooltip="YM יוצר דיברגנס רק כשהוא נסגר בעלייה בזמן ש-ES ו/או NQ נסגרים בירידה.",
      group=grp_assets)
 
-grp_tf     = "═══  Chart Timeframe Filter  ═══"
-i_tf_1m    = input.bool(true,  title="1m (ES & NQ Only)",  group=grp_tf)
-i_tf_5m    = input.bool(true,  title="5m",   group=grp_tf)
-i_tf_15m   = input.bool(true,  title="15m",  group=grp_tf)
-i_tf_1h    = input.bool(true,  title="1H",   group=grp_tf)
-i_tf_4h    = input.bool(true,  title="4H",   group=grp_tf)
-i_tf_1d    = input.bool(true,  title="Daily",  group=grp_tf)
-i_tf_1w    = input.bool(true,  title="Weekly", group=grp_tf)
+grp_tf     = "═══  מסגרת הגרף  ═══"
+i_tf_1m    = input.bool(true,  title="1m (ES ו-NQ בלבד)", group=grp_tf)
+i_tf_5m    = input.bool(true,  title="5m",     group=grp_tf)
+i_tf_15m   = input.bool(true,  title="15m",    group=grp_tf)
+i_tf_1h    = input.bool(true,  title="1H",     group=grp_tf)
+i_tf_4h    = input.bool(true,  title="4H",     group=grp_tf)
+i_tf_1d    = input.bool(true,  title="יומי",   group=grp_tf)
+i_tf_1w    = input.bool(true,  title="שבועי",  group=grp_tf)
 
-grp_col    = "═══  Markers & Colors  ═══"
-i_col_bull = input.color(color.new(#00e5ff, 0), title="Bullish Signal",  group=grp_col)
-i_col_bear = input.color(color.new(#ff1744, 0), title="Bearish Signal",  group=grp_col)
-i_ext_transp = input.int(45, title="Other-Asset Marker Fade", minval=0, maxval=90,
-     tooltip="Transparency of the hollow markers drawn when the swing happened on another asset, not on the chart symbol.",
+grp_col    = "═══  סימונים וצבעים  ═══"
+i_col_bull = input.color(color.new(#00e5ff, 0), title="אות שורי", group=grp_col)
+i_col_bear = input.color(color.new(#ff1744, 0), title="אות דובי", group=grp_col)
+i_ext_transp = input.int(45, title="עמעום סימון של נכס אחר", minval=0, maxval=90,
+     tooltip="שקיפות הסימון החלול, שמצויר כשהסווינג קרה בנכס אחר ולא בסימבול שעל הגרף.",
      group=grp_col)
-i_show_pending = input.bool(true, title="Show Pending PCP Marker (•)",
-     tooltip="A PCP bar is only resolved once the NEXT bar closes. Until then it is marked with a dim dot.",
+i_show_pending = input.bool(true, title="הצג סימון PCP ממתין (•)",
+     tooltip="נר PCP מוכרע רק כשהנר שאחריו נסגר. עד אז הוא מסומן בנקודה עמומה.",
      group=grp_col)
-i_col_pend = input.color(color.new(#9e9e9e, 25), title="Pending PCP", group=grp_col)
-i_show_pcp_bars = input.bool(false, title="Tint All PCP Bars", group=grp_col)
-i_col_pcp  = input.color(color.new(#ffd54f, 80), title="PCP Bar Tint", group=grp_col)
+i_col_pend = input.color(color.new(#9e9e9e, 25), title="צבע PCP ממתין", group=grp_col)
+i_show_pcp_bars = input.bool(false, title="צבע את כל נרות ה-PCP", group=grp_col)
+i_col_pcp  = input.color(color.new(#ffd54f, 80), title="גוון נרות PCP", group=grp_col)
 
-grp_mtf    = "═══  Higher Timeframes  ═══"
-i_mtf_on   = input.bool(true, title="Show Higher-Timeframe Line",
-     tooltip="A single line in the corner listing the PSP breaks that are live right now on 1H / 4H / 1D / 1W.\nOnly timeframes above the chart's are listed.",
+grp_mtf    = "═══  מסגרות זמן גבוהות  ═══"
+i_mtf_on   = input.bool(true, title="הצג שורת מסגרות גבוהות",
+     tooltip="שורה אחת בפינה עם השבירות שחיות עכשיו ב-1H / 4H / 1D / 1W.\nמוצגות רק מסגרות גבוהות ממסגרת הגרף.",
      group=grp_mtf)
-i_mtf_v    = input.string("Bottom", title="Line Height",
-     options=["Top", "Middle", "Bottom"], group=grp_mtf)
-i_mtf_h    = input.string("Left", title="Line Side",
-     options=["Left", "Center", "Right"], group=grp_mtf)
-i_inv_wick = input.bool(false, title="Invalidate on Wick",
-     tooltip="Off (default): a break dies when a bar of its own timeframe CLOSES beyond the swing level.\nOn: a wick beyond the level is enough.",
+i_mtf_v    = input.string("למטה", title="גובה השורה",
+     options=["למעלה", "באמצע", "למטה"], group=grp_mtf)
+i_mtf_h    = input.string("שמאל", title="צד השורה",
+     options=["שמאל", "מרכז", "ימין"], group=grp_mtf)
+i_mtf_pad  = input.int(0, title="הרחקת השורה מהקצה (שורות)", minval=0, maxval=12,
+     tooltip="מוסיף שורות ריקות בין השורה לקצה הגרף, כדי להרים אותה מעל שורה של אינדיקטור אחר שיושב באותה פינה.",
      group=grp_mtf)
-i_pnl_on   = input.bool(false, title="Show Timeframe Panel", group=grp_mtf)
-i_pnl_v    = input.string("Bottom", title="Panel Height",
-     options=["Top", "Middle", "Bottom"], group=grp_mtf)
-i_pnl_h    = input.string("Right", title="Panel Side",
-     options=["Left", "Center", "Right"], group=grp_mtf)
-i_col_neut = input.color(color.new(#ffffff, 15), title="Neutral Text", group=grp_mtf)
-i_mtf_alert = input.bool(true, title="Alert on Line Change", group=grp_mtf)
+i_inv_wick = input.bool(false, title="בטל שבירה לפי פתיל",
+     tooltip="כבוי (ברירת מחדל): שבירה מתה כשנר של אותה מסגרת נסגר מעבר לרמת הסווינג.\nדלוק: מספיק פתיל מעבר לרמה.",
+     group=grp_mtf)
+i_pnl_on   = input.bool(false, title="הצג פאנל מסגרות", group=grp_mtf)
+i_pnl_v    = input.string("למטה", title="גובה הפאנל",
+     options=["למעלה", "באמצע", "למטה"], group=grp_mtf)
+i_pnl_h    = input.string("ימין", title="צד הפאנל",
+     options=["שמאל", "מרכז", "ימין"], group=grp_mtf)
+i_pnl_pad  = input.int(0, title="הרחקת הפאנל מהקצה (שורות)", minval=0, maxval=12, group=grp_mtf)
+i_col_neut = input.color(color.new(#ffffff, 15), title="צבע טקסט נייטרלי", group=grp_mtf)
+i_mtf_alert = input.bool(true, title="התראה על שינוי בשורה", group=grp_mtf)
 
 // ══════════════════════════════════════════════════════════════
 //  TIMEFRAME GATE  (chart drawing only — the corner line is independent)
@@ -462,54 +472,66 @@ mark = f_join(f_join(f_join(r1w, r1d), r4h), r1h)
 // Kept as one-line statements on purpose: Pine treats a continuation line
 // indented by any multiple of four spaces as the start of a block, so a
 // column-aligned wrapped ternary is a syntax error waiting to happen.
-mtfTop = i_mtf_h == "Left" ? position.top_left : i_mtf_h == "Center" ? position.top_center : position.top_right
-mtfMid = i_mtf_h == "Left" ? position.middle_left : i_mtf_h == "Center" ? position.middle_center : position.middle_right
-mtfBot = i_mtf_h == "Left" ? position.bottom_left : i_mtf_h == "Center" ? position.bottom_center : position.bottom_right
-mtfPos = i_mtf_v == "Top" ? mtfTop : i_mtf_v == "Middle" ? mtfMid : mtfBot
+mtfTop = i_mtf_h == "שמאל" ? position.top_left : i_mtf_h == "מרכז" ? position.top_center : position.top_right
+mtfMid = i_mtf_h == "שמאל" ? position.middle_left : i_mtf_h == "מרכז" ? position.middle_center : position.middle_right
+mtfBot = i_mtf_h == "שמאל" ? position.bottom_left : i_mtf_h == "מרכז" ? position.bottom_center : position.bottom_right
+mtfPos = i_mtf_v == "למעלה" ? mtfTop : i_mtf_v == "באמצע" ? mtfMid : mtfBot
 
-// Five cells, not one joined string: a cell carries a single text colour, and
-// each timeframe has to be painted in its own direction's colour.
-var table mtfTbl = table.new(mtfPos, 5, 1, border_width = 0)
+// Padding: the table is anchored to an edge, so empty spacer rows on the edge
+// side push the content away from it. Anchored at the top the spacers go
+// above the content, otherwise below it.
+mtfUp  = i_mtf_v == "למעלה"
+mtfRow = mtfUp ? i_mtf_pad : 0
+
+// Five columns, not one joined string: a cell carries a single text colour,
+// and each timeframe has to be painted in its own direction's colour.
+var table mtfTbl = table.new(mtfPos, 5, 1 + i_mtf_pad, border_width = 0)
 
 c_clear = color.new(color.black, 100)
 
 if barstate.islast and i_mtf_on
-    table.cell(mtfTbl, 0, 0, mark == "" ? "" : "ADI", text_color = i_col_neut,
+    if i_mtf_pad > 0
+        for k = 0 to i_mtf_pad - 1
+            table.cell(mtfTbl, 0, mtfUp ? k : 1 + k, " ",
+                 text_size = size.small, bgcolor = c_clear)
+
+    table.cell(mtfTbl, 0, mtfRow, mark == "" ? "" : "ADI", text_color = i_col_neut,
          text_size = size.small, bgcolor = c_clear)
 
     col = 1
     if r1w != ""
-        table.cell(mtfTbl, col, 0, r1w, text_color = d1w < 0 ? i_col_bear : i_col_bull,
+        table.cell(mtfTbl, col, mtfRow, r1w, text_color = d1w < 0 ? i_col_bear : i_col_bull,
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
     if r1d != ""
-        table.cell(mtfTbl, col, 0, r1d, text_color = d1d < 0 ? i_col_bear : i_col_bull,
+        table.cell(mtfTbl, col, mtfRow, r1d, text_color = d1d < 0 ? i_col_bear : i_col_bull,
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
     if r4h != ""
-        table.cell(mtfTbl, col, 0, r4h, text_color = d4h < 0 ? i_col_bear : i_col_bull,
+        table.cell(mtfTbl, col, mtfRow, r4h, text_color = d4h < 0 ? i_col_bear : i_col_bull,
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
     if r1h != ""
-        table.cell(mtfTbl, col, 0, r1h, text_color = d1h < 0 ? i_col_bear : i_col_bull,
+        table.cell(mtfTbl, col, mtfRow, r1h, text_color = d1h < 0 ? i_col_bear : i_col_bull,
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
     if col <= 4
         for k = col to 4
-            table.cell(mtfTbl, k, 0, "", bgcolor = c_clear)
+            table.cell(mtfTbl, k, mtfRow, "", bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
 //  PANEL  (optional, off by default)
-//  ▶ marks a timeframe at or below the chart's — that one is drawn on the
-//  bars themselves rather than tracked here.
 // ══════════════════════════════════════════════════════════════
 
-pnlTop = i_pnl_h == "Left" ? position.top_left : i_pnl_h == "Center" ? position.top_center : position.top_right
-pnlMid = i_pnl_h == "Left" ? position.middle_left : i_pnl_h == "Center" ? position.middle_center : position.middle_right
-pnlBot = i_pnl_h == "Left" ? position.bottom_left : i_pnl_h == "Center" ? position.bottom_center : position.bottom_right
-pnlPos = i_pnl_v == "Top" ? pnlTop : i_pnl_v == "Middle" ? pnlMid : pnlBot
+pnlTop = i_pnl_h == "שמאל" ? position.top_left : i_pnl_h == "מרכז" ? position.top_center : position.top_right
+pnlMid = i_pnl_h == "שמאל" ? position.middle_left : i_pnl_h == "מרכז" ? position.middle_center : position.middle_right
+pnlBot = i_pnl_h == "שמאל" ? position.bottom_left : i_pnl_h == "מרכז" ? position.bottom_center : position.bottom_right
+pnlPos = i_pnl_v == "למעלה" ? pnlTop : i_pnl_v == "באמצע" ? pnlMid : pnlBot
 
-var table pnlTbl = table.new(pnlPos, 2, 5, border_width = 0)
+pnlUp  = i_pnl_v == "למעלה"
+pnlR0  = pnlUp ? i_pnl_pad : 0
+
+var table pnlTbl = table.new(pnlPos, 2, 5 + i_pnl_pad, border_width = 0)
 
 // "▶" marks a timeframe at or below the chart's: that one is drawn on the bars
 // themselves rather than tracked here.
@@ -520,16 +542,21 @@ f_statCol(int dir, bool shown) =>
     not shown or dir == 0 ? i_col_neut : dir < 0 ? i_col_bear : i_col_bull
 
 if barstate.islast and i_pnl_on
-    table.cell(pnlTbl, 0, 0, "ADI", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 1, 0, "",    text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 0, 1, "1W", text_color = f_statCol(d1w, sh1w), text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 1, 1, f_stat(st1w, sh1w), text_color = f_statCol(d1w, sh1w), text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 0, 2, "1D", text_color = f_statCol(d1d, sh1d), text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 1, 2, f_stat(st1d, sh1d), text_color = f_statCol(d1d, sh1d), text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 0, 3, "4H", text_color = f_statCol(d4h, sh4h), text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 1, 3, f_stat(st4h, sh4h), text_color = f_statCol(d4h, sh4h), text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 0, 4, "1H", text_color = f_statCol(d1h, sh1h), text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 1, 4, f_stat(st1h, sh1h), text_color = f_statCol(d1h, sh1h), text_size = size.small, bgcolor = c_clear)
+    if i_pnl_pad > 0
+        for k = 0 to i_pnl_pad - 1
+            table.cell(pnlTbl, 0, pnlUp ? k : 5 + k, " ",
+                 text_size = size.small, bgcolor = c_clear)
+
+    table.cell(pnlTbl, 0, pnlR0, "ADI", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, pnlR0, "",    text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 0, pnlR0 + 1, "1W", text_color = f_statCol(d1w, sh1w), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, pnlR0 + 1, f_stat(st1w, sh1w), text_color = f_statCol(d1w, sh1w), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 0, pnlR0 + 2, "1D", text_color = f_statCol(d1d, sh1d), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, pnlR0 + 2, f_stat(st1d, sh1d), text_color = f_statCol(d1d, sh1d), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 0, pnlR0 + 3, "4H", text_color = f_statCol(d4h, sh4h), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, pnlR0 + 3, f_stat(st4h, sh4h), text_color = f_statCol(d4h, sh4h), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 0, pnlR0 + 4, "1H", text_color = f_statCol(d1h, sh1h), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, pnlR0 + 4, f_stat(st1h, sh1h), text_color = f_statCol(d1h, sh1h), text_size = size.small, bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
 //  ALERT
