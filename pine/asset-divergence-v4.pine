@@ -1,19 +1,21 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.0
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.1
 // Pine Script V5
 //
-// v5.0 — the corner line became a notification instead of a status board:
-//  - ONE slot, not one record per timeframe. It holds the most recent break
-//    from any of 1H / 4H / 1D / 1W and stays until a newer break replaces it.
-//  - When that break's level is taken, the slot shows "✕ נשבר" for a few
-//    minutes and then clears itself.
-//  - Each record identifies its candle by the SWING CANDLE'S TIME rather than
-//    an age in bars. Under a single slot the age is 1 the whole time it is on
-//    screen, so it carried no information; the timestamp does.
-//  - The alert fires on a new break and on an invalidation, with different
-//    text, so a phone alert says which of the two happened.
-//  - The panel stays a full per-timeframe view, which is now the complement
-//    of the line rather than a duplicate of it.
+// v5.1 — the line says what happened and who was in it, nothing else:
+//  - A record is "<TF> <arrow> <who>". "who" is the assets that took part in
+//    the DIVERGENCE, or "ALL" when all three did. The P/Y/B source letter is
+//    gone: the list of names already says where the divergence came from.
+//  - No timestamp. The line reports that a break happened, not when.
+//  - No timer and no "broken" text. A break whose level is taken simply
+//    disappears; otherwise it stands until a newer break replaces it.
+//  - Second, grey slot beside it: a higher-timeframe bar that closed as a PCP
+//    but whose swing verdict is not in yet. Same idea as the grey dot on the
+//    bars, and it clears itself the same way — the next close either promotes
+//    it to a coloured break or drops it.
+//
+// v5.0:
+//  - ONE slot instead of one record per timeframe.
 //
 // v4.x history:
 //  - YM only creates a divergence when it shows STRENGTH (up while ES and/or
@@ -75,7 +77,7 @@ i_col_pcp  = input.color(color.new(#ffd54f, 80), title="גוון נרות PCP", 
 
 grp_mtf    = "═══  מסגרות זמן גבוהות  ═══"
 i_mtf_on   = input.bool(true, title="הצג שורת שבירות",
-     tooltip="שורה אחת בפינה שמחזיקה את השבירה האחרונה מ-1H / 4H / 1D / 1W.\nשבירה חדשה מחליפה את הקודמת. מוצגות רק מסגרות גבוהות ממסגרת הגרף.",
+     tooltip="שורה אחת בפינה: השבירה האחרונה מ-1H / 4H / 1D / 1W, ולידה באפור נר שנסגר עם דיברגנס וממתין להכרעה אם הוא סווינג.\nשבירה חדשה מחליפה את הקודמת. מוצגות רק מסגרות גבוהות ממסגרת הגרף.",
      group=grp_mtf)
 i_mtf_v    = input.string("למטה", title="גובה השורה",
      options=["למעלה", "באמצע", "למטה"], group=grp_mtf)
@@ -83,9 +85,6 @@ i_mtf_h    = input.string("שמאל", title="צד השורה",
      options=["שמאל", "מרכז", "ימין"], group=grp_mtf)
 i_mtf_pad  = input.int(0, title="הרחקת השורה מהקצה (שורות)", minval=0, maxval=12,
      tooltip="מוסיף שורות ריקות בין השורה לקצה הגרף, כדי להרים אותה מעל שורה של אינדיקטור אחר שיושב באותה פינה.",
-     group=grp_mtf)
-i_broke_min = input.int(15, title="משך הצגת 'נשבר' (דקות)", minval=1, maxval=1440,
-     tooltip="כשהרמה של השבירה שעל המסך נלקחת, השורה כותבת 'נשבר' למשך הזמן הזה ואז מתנקה.",
      group=grp_mtf)
 i_inv_wick = input.bool(false, title="בטל שבירה לפי פתיל",
      tooltip="כבוי (ברירת מחדל): שבירה מתה כשנר של אותה מסגרת נסגר מעבר לרמת הסווינג.\nדלוק: מספיק פתיל מעבר לרמה.",
@@ -275,6 +274,7 @@ barcolor(tf_allowed and i_show_pcp_bars and is_pcp ? i_col_pcp : na,
 // ══════════════════════════════════════════════════════════════
 
 type AB
+    float o1 = na
     float o2 = na
     float c2 = na
     float c1 = na
@@ -286,11 +286,12 @@ type AB
     float l3 = na
 
 f_load(AB b, simple string sym, simple string tf) =>
-    [tc, sw, o2, c2, c1, h1, h2, h3, l1, l2, l3] = request.security(sym, tf,
-         [time_close[1], time[2], open[2], close[2], close[1],
+    [tc, o1, o2, c2, c1, h1, h2, h3, l1, l2, l3] = request.security(sym, tf,
+         [time_close[1], open[1], open[2], close[2], close[1],
           high[1], high[2], high[3], low[1], low[2], low[3]],
          lookahead = barmerge.lookahead_off,
          gaps      = barmerge.gaps_off)
+    b.o1 := o1
     b.o2 := o2
     b.c2 := c2
     b.c1 := c1
@@ -300,7 +301,7 @@ f_load(AB b, simple string sym, simple string tf) =>
     b.l1 := l1
     b.l2 := l2
     b.l3 := l3
-    [tc, sw]
+    tc
 
 // One reusable object per asset per timeframe — allocated once, updated in
 // place, so nothing accumulates across bars.
@@ -317,32 +318,27 @@ var AB n1w = AB.new()
 var AB e1w = AB.new()
 var AB y1w = AB.new()
 
-[tn1h, sn1h] = f_load(n1h, i_sym_nq, "60")
-[te1h, se1h] = f_load(e1h, i_sym_es, "60")
-[ty1h, sy1h] = f_load(y1h, i_sym_ym, "60")
+tn1h = f_load(n1h, i_sym_nq, "60")
+te1h = f_load(e1h, i_sym_es, "60")
+ty1h = f_load(y1h, i_sym_ym, "60")
 
-[tn4h, sn4h] = f_load(n4h, i_sym_nq, "240")
-[te4h, se4h] = f_load(e4h, i_sym_es, "240")
-[ty4h, sy4h] = f_load(y4h, i_sym_ym, "240")
+tn4h = f_load(n4h, i_sym_nq, "240")
+te4h = f_load(e4h, i_sym_es, "240")
+ty4h = f_load(y4h, i_sym_ym, "240")
 
-[tn1d, sn1d] = f_load(n1d, i_sym_nq, "D")
-[te1d, se1d] = f_load(e1d, i_sym_es, "D")
-[ty1d, sy1d] = f_load(y1d, i_sym_ym, "D")
+tn1d = f_load(n1d, i_sym_nq, "D")
+te1d = f_load(e1d, i_sym_es, "D")
+ty1d = f_load(y1d, i_sym_ym, "D")
 
-[tn1w, sn1w] = f_load(n1w, i_sym_nq, "W")
-[te1w, se1w] = f_load(e1w, i_sym_es, "W")
-[ty1w, sy1w] = f_load(y1w, i_sym_ym, "W")
+tn1w = f_load(n1w, i_sym_nq, "W")
+te1w = f_load(e1w, i_sym_es, "W")
+ty1w = f_load(y1w, i_sym_ym, "W")
 
 // The three contracts share a session, so any enabled one is the clock.
 t1h = i_use_nq ? tn1h : i_use_es ? te1h : ty1h
 t4h = i_use_nq ? tn4h : i_use_es ? te4h : ty4h
 t1d = i_use_nq ? tn1d : i_use_es ? te1d : ty1d
 t1w = i_use_nq ? tn1w : i_use_es ? te1w : ty1w
-
-w1h = i_use_nq ? sn1h : i_use_es ? se1h : sy1h
-w4h = i_use_nq ? sn4h : i_use_es ? se4h : sy4h
-w1d = i_use_nq ? sn1d : i_use_es ? se1d : sy1d
-w1w = i_use_nq ? sn1w : i_use_es ? se1w : sy1w
 
 // ══════════════════════════════════════════════════════════════
 //  PER-TIMEFRAME STATE
@@ -353,17 +349,32 @@ w1w = i_use_nq ? sn1w : i_use_es ? se1w : sy1w
 type MtfSt
     int    lastT  = 0     // time of the bar already stepped — blocks a double step
     int    dir    = 0     // -1 bearish · 0 none · 1 bullish
-    string src    = ""    // P = ES/NQ pair · Y = YM strength · B = both
-    string who    = ""    // which assets made the swing
-    int    swT    = 0     // open time of the swing candle
+    string who    = ""    // assets that took part in the divergence, or "ALL"
     int    bornT  = 0     // close time of the bar that confirmed the break
-    int    goneT  = 0     // close time of the bar that invalidated it
     bool   isNew  = false // set on the chart bar the break was recorded
     bool   isGone = false // set on the chart bar it was invalidated
+    bool   pndOn  = false // the bar that just closed is a PCP, verdict not in
+    string pndWho = ""
 
 // Has the level been taken? Close beyond it by default, wick beyond it on request.
 f_taken(float lvl, int dir, float hi, float lo, float cl) =>
     na(lvl) ? false : dir == -1 ? (i_inv_wick ? hi > lvl : cl > lvl) : (i_inv_wick ? lo < lvl : cl < lvl)
+
+// Who took part in the divergence. ES and NQ are both in whenever they split;
+// YM is in only when its strength rule fired, and it drags in whichever of the
+// other two it was strong against.
+f_who(bool divP, bool divY, bool okN, bool okE, int dn, int de) =>
+    pN = divP or (divY and okN and dn < 0)
+    pE = divP or (divY and okE and de < 0)
+    w  = pN and pE and divY ? "ALL" : ""
+    if w == ""
+        if pN
+            w := "NQ"
+        if pE
+            w := w + (w == "" ? "" : " ") + "ES"
+        if divY
+            w := w + (w == "" ? "" : " ") + "YM"
+    w
 
 // Levels of the assets that made the swing, kept out of the type so the state
 // stays about the break and these stay about the price test.
@@ -380,7 +391,7 @@ var Lv v1w = Lv.new()
 // One step per closed bar of that timeframe. Invalidation is checked before
 // detection, so a level taken and a fresh swing on the same bar resolve in
 // the right order.
-f_step(MtfSt s, Lv v, int t, int sw, AB n, AB e, AB y) =>
+f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y) =>
     s.isNew  := false
     s.isGone := false
     if not na(t) and t != s.lastT
@@ -393,13 +404,26 @@ f_step(MtfSt s, Lv v, int t, int sw, AB n, AB e, AB y) =>
             tkY = f_taken(v.ym, s.dir, y.h1, y.l1, y.c1)
             if tkN or tkE or tkY
                 s.dir    := 0
-                s.goneT  := t
                 s.isGone := true
                 v.nq := na
                 v.es := na
                 v.ym := na
 
-        // ── 2. a new PSP on the swing bar, [2] ──
+        // ── 2. the bar that just closed, [1]: a PCP whose swing verdict
+        //       needs the NEXT close. This is the grey "maybe" state, and it
+        //       is replaced wholesale on the next step, so it self-clears.
+        an  = f_dir(n.o1, n.c1)
+        ae  = f_dir(e.o1, e.c1)
+        ay  = f_dir(y.o1, y.c1)
+        qN  = i_use_nq and not na(n.c1) and (not i_ignore_doji or an != 0)
+        qE  = i_use_es and not na(e.c1) and (not i_ignore_doji or ae != 0)
+        qY  = i_use_ym and not na(y.c1) and (not i_ignore_doji or ay != 0)
+        qP  = qN and qE and an != ae
+        qYm = qY and ay > 0 and ((qE and ae < 0) or (qN and an < 0))
+        s.pndOn  := qP or qYm
+        s.pndWho := s.pndOn ? f_who(qP, qYm, qN, qE, an, ae) : ""
+
+        // ── 3. a new PSP on the swing bar, [2] ──
         dn  = f_dir(n.o2, n.c2)
         de  = f_dir(e.o2, e.c2)
         dy  = f_dir(y.o2, y.c2)
@@ -427,18 +451,8 @@ f_step(MtfSt s, Lv v, int t, int sw, AB n, AB e, AB y) =>
                 gE   = bear ? hiE : loE
                 gY   = bear ? hiY : loY
 
-                w = ""
-                if gN
-                    w := w + "NQ"
-                if gE
-                    w := w + (w == "" ? "" : "·") + "ES"
-                if gY
-                    w := w + (w == "" ? "" : "·") + "YM"
-
                 s.dir    := bear ? -1 : 1
-                s.src    := divP and divY ? "B" : divP ? "P" : "Y"
-                s.who    := w
-                s.swT    := sw
+                s.who    := f_who(divP, divY, okN, okE, dn, de)
                 s.bornT  := t
                 s.isNew  := true
                 s.isGone := false
@@ -452,16 +466,23 @@ var MtfSt st4h = MtfSt.new()
 var MtfSt st1d = MtfSt.new()
 var MtfSt st1w = MtfSt.new()
 
-f_step(st1h, v1h, t1h, w1h, n1h, e1h, y1h)
-f_step(st4h, v4h, t4h, w4h, n4h, e4h, y4h)
-f_step(st1d, v1d, t1d, w1d, n1d, e1d, y1d)
-f_step(st1w, v1w, t1w, w1w, n1w, e1w, y1w)
+f_step(st1h, v1h, t1h, n1h, e1h, y1h)
+f_step(st4h, v4h, t4h, n4h, e4h, y4h)
+f_step(st1d, v1d, t1d, n1d, e1d, y1d)
+f_step(st1w, v1w, t1w, n1w, e1w, y1w)
 
 // ══════════════════════════════════════════════════════════════
-//  THE SLOT
-//  One record, from whichever timeframe broke last. A newer break replaces
-//  it. When its level is taken it says so for a few minutes, then clears.
-//  Only timeframes ABOVE the chart's take part: the chart's own is already
+//  THE TWO SLOTS
+//
+//  Left  — the last confirmed break, from whichever timeframe broke most
+//          recently. A newer break replaces it. If its level is taken it
+//          just disappears: no timer, no "broken" text.
+//  Right — grey. A higher-timeframe bar closed with a divergence and its
+//          swing verdict is not in yet. It needs no timer either: the next
+//          close on that timeframe overwrites it, either promoting it to a
+//          coloured break or dropping it.
+//
+//  Only timeframes ABOVE the chart's take part. The chart's own is already
 //  drawn on the bars, and anything below it cannot be tracked accurately.
 // ══════════════════════════════════════════════════════════════
 
@@ -471,57 +492,63 @@ sh4h = timeframe.in_seconds("240") > chartSec
 sh1d = timeframe.in_seconds("D")   > chartSec
 sh1w = timeframe.in_seconds("W")   > chartSec
 
-// Intraday breaks are identified by time of day, higher ones by date.
-f_txt(MtfSt s, string nm, simple string fmt) =>
-    nm + " " + (s.dir < 0 ? "▼" : "▲") + s.src + " " + s.who + " " +
-         str.format_time(s.swT, fmt, syminfo.timezone)
+f_txt(MtfSt s, string nm) =>
+    nm + " " + (s.dir < 0 ? "▼" : "▲") + " " + s.who
 
 var int    curT   = 0    // bornT of the record on screen
 var int    curIdx = -1   // 0 = 1W · 1 = 1D · 2 = 4H · 3 = 1H
 var int    curDir = 0
 var string curTx  = ""
-var int    curGone = 0   // when it was invalidated; 0 while still live
 
-// Read the invalidation of what is on screen BEFORE anything replaces it,
-// so a break and its replacement landing on the same bar stay distinct.
+// Read the invalidation of what is on screen BEFORE anything replaces it, so
+// a break and its replacement landing on the same bar stay distinct.
 gone   = curIdx == 0 ? st1w.isGone : curIdx == 1 ? st1d.isGone : curIdx == 2 ? st4h.isGone : curIdx == 3 ? st1h.isGone : false
-goneAt = curIdx == 0 ? st1w.goneT  : curIdx == 1 ? st1d.goneT  : curIdx == 2 ? st4h.goneT  : curIdx == 3 ? st1h.goneT  : 0
 goneTx = gone ? curTx : ""
 
-if gone and curGone == 0
-    curGone := goneAt
+if gone
+    curIdx := -1
+    curDir := 0
+    curTx  := ""
 
 if sh1w and st1w.isNew and st1w.bornT > curT
     curT := st1w.bornT
     curIdx := 0
     curDir := st1w.dir
-    curTx := f_txt(st1w, "1W", "dd/MM")
-    curGone := 0
+    curTx := f_txt(st1w, "1W")
 if sh1d and st1d.isNew and st1d.bornT > curT
     curT := st1d.bornT
     curIdx := 1
     curDir := st1d.dir
-    curTx := f_txt(st1d, "1D", "dd/MM")
-    curGone := 0
+    curTx := f_txt(st1d, "1D")
 if sh4h and st4h.isNew and st4h.bornT > curT
     curT := st4h.bornT
     curIdx := 2
     curDir := st4h.dir
-    curTx := f_txt(st4h, "4H", "dd HH:mm")
-    curGone := 0
+    curTx := f_txt(st4h, "4H")
 if sh1h and st1h.isNew and st1h.bornT > curT
     curT := st1h.bornT
     curIdx := 3
     curDir := st1h.dir
-    curTx := f_txt(st1h, "1H", "HH:mm")
-    curGone := 0
+    curTx := f_txt(st1h, "1H")
 
-// A broken record lingers only briefly; a live one stays until replaced.
-broke   = curGone != 0
-lingers = broke and (timenow - curGone) <= i_broke_min * 60000
-showRec = curTx != "" and (not broke or lingers)
-recTx   = broke ? curTx + "  ✕ נשבר" : curTx
-recCol  = broke ? i_col_neut : curDir < 0 ? i_col_bear : i_col_bull
+// The grey slot holds no state of its own — it is read straight off the
+// timeframe that stepped most recently, so it follows the states exactly.
+pndT  = 0
+pndTx = ""
+if sh1w and st1w.pndOn and st1w.lastT > pndT
+    pndT  := st1w.lastT
+    pndTx := "1W ◦ " + st1w.pndWho
+if sh1d and st1d.pndOn and st1d.lastT > pndT
+    pndT  := st1d.lastT
+    pndTx := "1D ◦ " + st1d.pndWho
+if sh4h and st4h.pndOn and st4h.lastT > pndT
+    pndT  := st4h.lastT
+    pndTx := "4H ◦ " + st4h.pndWho
+if sh1h and st1h.pndOn and st1h.lastT > pndT
+    pndT  := st1h.lastT
+    pndTx := "1H ◦ " + st1h.pndWho
+
+recCol = curDir < 0 ? i_col_bear : i_col_bull
 
 // ══════════════════════════════════════════════════════════════
 //  CORNER LINE
@@ -541,7 +568,9 @@ mtfPos = i_mtf_v == "למעלה" ? mtfTop : i_mtf_v == "באמצע" ? mtfMid : m
 mtfUp  = i_mtf_v == "למעלה"
 mtfRow = mtfUp ? i_mtf_pad : 0
 
-var table mtfTbl = table.new(mtfPos, 2, 1 + i_mtf_pad, border_width = 0)
+// Three cells: a cell carries one text colour, and the confirmed record and
+// the grey one have to be coloured apart.
+var table mtfTbl = table.new(mtfPos, 3, 1 + i_mtf_pad, border_width = 0)
 
 c_clear = color.new(color.black, 100)
 
@@ -551,15 +580,18 @@ if barstate.islast and i_mtf_on
             table.cell(mtfTbl, 0, mtfUp ? k : 1 + k, " ",
                  text_size = size.small, bgcolor = c_clear)
 
-    table.cell(mtfTbl, 0, mtfRow, showRec ? "ADI" : "", text_color = i_col_neut,
+    anything = curTx != "" or pndTx != ""
+    table.cell(mtfTbl, 0, mtfRow, anything ? "ADI" : "", text_color = i_col_neut,
          text_size = size.small, bgcolor = c_clear)
-    table.cell(mtfTbl, 1, mtfRow, showRec ? recTx : "", text_color = recCol,
+    table.cell(mtfTbl, 1, mtfRow, curTx, text_color = recCol,
+         text_size = size.small, bgcolor = c_clear)
+    table.cell(mtfTbl, 2, mtfRow, pndTx, text_color = i_col_pend,
          text_size = size.small, bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
 //  PANEL  (optional, off by default)
-//  The full picture: every timeframe's live break. The line shows only the
-//  newest, so the two complement each other rather than repeat.
+//  The full picture: every timeframe's live break, or its grey pending bar.
+//  The line shows only the most recent, so the two complement each other.
 //  "▶" marks a timeframe at or below the chart's — drawn on the bars instead.
 // ══════════════════════════════════════════════════════════════
 
@@ -573,11 +605,11 @@ pnlR0  = pnlUp ? i_pnl_pad : 0
 
 var table pnlTbl = table.new(pnlPos, 2, 5 + i_pnl_pad, border_width = 0)
 
-f_stat(MtfSt s, bool shown, simple string fmt) =>
-    not shown ? "▶" : s.dir == 0 ? "—" : (s.dir < 0 ? "▼" : "▲") + s.src + " " + s.who + " " + str.format_time(s.swT, fmt, syminfo.timezone)
+f_stat(MtfSt s, bool shown) =>
+    not shown ? "▶" : s.dir != 0 ? (s.dir < 0 ? "▼" : "▲") + " " + s.who : s.pndOn ? "◦ " + s.pndWho : "—"
 
 f_statCol(MtfSt s, bool shown) =>
-    not shown or s.dir == 0 ? i_col_neut : s.dir < 0 ? i_col_bear : i_col_bull
+    not shown ? i_col_neut : s.dir < 0 ? i_col_bear : s.dir > 0 ? i_col_bull : i_col_pend
 
 if barstate.islast and i_pnl_on
     if i_pnl_pad > 0
@@ -588,17 +620,19 @@ if barstate.islast and i_pnl_on
     table.cell(pnlTbl, 0, pnlR0, "ADI", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
     table.cell(pnlTbl, 1, pnlR0, "",    text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
     table.cell(pnlTbl, 0, pnlR0 + 1, "1W", text_color = f_statCol(st1w, sh1w), text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 1, pnlR0 + 1, f_stat(st1w, sh1w, "dd/MM"), text_color = f_statCol(st1w, sh1w), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, pnlR0 + 1, f_stat(st1w, sh1w), text_color = f_statCol(st1w, sh1w), text_size = size.small, bgcolor = c_clear)
     table.cell(pnlTbl, 0, pnlR0 + 2, "1D", text_color = f_statCol(st1d, sh1d), text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 1, pnlR0 + 2, f_stat(st1d, sh1d, "dd/MM"), text_color = f_statCol(st1d, sh1d), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, pnlR0 + 2, f_stat(st1d, sh1d), text_color = f_statCol(st1d, sh1d), text_size = size.small, bgcolor = c_clear)
     table.cell(pnlTbl, 0, pnlR0 + 3, "4H", text_color = f_statCol(st4h, sh4h), text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 1, pnlR0 + 3, f_stat(st4h, sh4h, "dd HH:mm"), text_color = f_statCol(st4h, sh4h), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, pnlR0 + 3, f_stat(st4h, sh4h), text_color = f_statCol(st4h, sh4h), text_size = size.small, bgcolor = c_clear)
     table.cell(pnlTbl, 0, pnlR0 + 4, "1H", text_color = f_statCol(st1h, sh1h), text_size = size.small, bgcolor = c_clear)
-    table.cell(pnlTbl, 1, pnlR0 + 4, f_stat(st1h, sh1h, "HH:mm"), text_color = f_statCol(st1h, sh1h), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, pnlR0 + 4, f_stat(st1h, sh1h), text_color = f_statCol(st1h, sh1h), text_size = size.small, bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
 //  ALERTS
 //  Two events, two messages, so a phone notification says which happened.
+//  The grey pending state deliberately raises nothing — it is a heads-up on
+//  the chart, not something worth waking you for.
 //  Alerts run on TradingView's servers, so one alert on one chart keeps
 //  working with the chart closed.
 // ══════════════════════════════════════════════════════════════
