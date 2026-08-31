@@ -258,10 +258,10 @@ barcolor(tf_allowed and i_show_pcp_bars and is_pcp ? i_col_pcp : na,
 //  once it has closed. Zero repaint.
 //
 //  Index map in the requested timeframe's context:
-//      [1] = last CLOSED bar   confirms the swing, carries the close used
-//                              for the "level taken" test, and its CLOSE
-//                              TIME is the moment the break became known
-//      [2] = the SWING bar     its OPEN TIME is what the line displays
+//      [1] = last CLOSED bar   confirms the swing of [2], carries the close
+//                              used for the "level taken" test, and is itself
+//                              the bar the grey pending state is read from
+//      [2] = the SWING bar
 //      [3] = the bar before it
 //
 //  The call count is fixed in the source (4 timeframes × 3 assets = 12,
