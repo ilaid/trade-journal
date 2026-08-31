@@ -1,6 +1,12 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v4.2
+// © Ilai - Asset Divergence Detector (PCP / PSP) v4.2.1
 // Pine Script V5
+//
+// v4.2.1:
+//  - Fixed a syntax error: the position ternary wrapped onto a line indented
+//    by 40 spaces, and Pine reads any multiple of four as the start of a block.
+//  - Line and panel placement are now two inputs each, height and side, so
+//    either can sit top / middle / bottom on left / center / right.
 //
 // v4.2 CHANGELOG:
 //  - New Weekly category: same PCP/PSP principle, full three-asset treatment.
@@ -77,14 +83,18 @@ grp_mtf    = "═══  Higher Timeframes  ═══"
 i_mtf_on   = input.bool(true, title="Show Higher-Timeframe Line",
      tooltip="A single line in the corner listing the PSP breaks that are live right now on 1H / 4H / 1D / 1W.\nOnly timeframes above the chart's are listed.",
      group=grp_mtf)
-i_mtf_pos  = input.string("Bottom Left", title="Line Position",
-     options=["Bottom Left", "Top Left", "Bottom Center", "Bottom Right"], group=grp_mtf)
+i_mtf_v    = input.string("Bottom", title="Line Height",
+     options=["Top", "Middle", "Bottom"], group=grp_mtf)
+i_mtf_h    = input.string("Left", title="Line Side",
+     options=["Left", "Center", "Right"], group=grp_mtf)
 i_inv_wick = input.bool(false, title="Invalidate on Wick",
      tooltip="Off (default): a break dies when a bar of its own timeframe CLOSES beyond the swing level.\nOn: a wick beyond the level is enough.",
      group=grp_mtf)
 i_pnl_on   = input.bool(false, title="Show Timeframe Panel", group=grp_mtf)
-i_pnl_pos  = input.string("Bottom Right", title="Panel Position",
-     options=["Bottom Right", "Top Right", "Bottom Left", "Top Left"], group=grp_mtf)
+i_pnl_v    = input.string("Bottom", title="Panel Height",
+     options=["Top", "Middle", "Bottom"], group=grp_mtf)
+i_pnl_h    = input.string("Right", title="Panel Side",
+     options=["Left", "Center", "Right"], group=grp_mtf)
 i_col_neut = input.color(color.new(#ffffff, 15), title="Neutral Text", group=grp_mtf)
 i_mtf_alert = input.bool(true, title="Alert on Line Change", group=grp_mtf)
 
@@ -449,10 +459,13 @@ f_join(string acc, string add) =>
 
 mark = f_join(f_join(f_join(r1w, r1d), r4h), r1h)
 
-mtfPos = i_mtf_pos == "Bottom Left"   ? position.bottom_left   :
-         i_mtf_pos == "Top Left"      ? position.top_left      :
-         i_mtf_pos == "Bottom Center" ? position.bottom_center :
-                                        position.bottom_right
+// Kept as one-line statements on purpose: Pine treats a continuation line
+// indented by any multiple of four spaces as the start of a block, so a
+// column-aligned wrapped ternary is a syntax error waiting to happen.
+mtfTop = i_mtf_h == "Left" ? position.top_left : i_mtf_h == "Center" ? position.top_center : position.top_right
+mtfMid = i_mtf_h == "Left" ? position.middle_left : i_mtf_h == "Center" ? position.middle_center : position.middle_right
+mtfBot = i_mtf_h == "Left" ? position.bottom_left : i_mtf_h == "Center" ? position.bottom_center : position.bottom_right
+mtfPos = i_mtf_v == "Top" ? mtfTop : i_mtf_v == "Middle" ? mtfMid : mtfBot
 
 // Five cells, not one joined string: a cell carries a single text colour, and
 // each timeframe has to be painted in its own direction's colour.
@@ -491,10 +504,10 @@ if barstate.islast and i_mtf_on
 //  bars themselves rather than tracked here.
 // ══════════════════════════════════════════════════════════════
 
-pnlPos = i_pnl_pos == "Bottom Right" ? position.bottom_right :
-         i_pnl_pos == "Top Right"    ? position.top_right    :
-         i_pnl_pos == "Bottom Left"  ? position.bottom_left  :
-                                       position.top_left
+pnlTop = i_pnl_h == "Left" ? position.top_left : i_pnl_h == "Center" ? position.top_center : position.top_right
+pnlMid = i_pnl_h == "Left" ? position.middle_left : i_pnl_h == "Center" ? position.middle_center : position.middle_right
+pnlBot = i_pnl_h == "Left" ? position.bottom_left : i_pnl_h == "Center" ? position.bottom_center : position.bottom_right
+pnlPos = i_pnl_v == "Top" ? pnlTop : i_pnl_v == "Middle" ? pnlMid : pnlBot
 
 var table pnlTbl = table.new(pnlPos, 2, 5, border_width = 0)
 
