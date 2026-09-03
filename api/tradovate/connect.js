@@ -33,17 +33,23 @@ export default async function handler(req, res) {
   }
 
   const env = body.env === "live" ? "live" : "demo";
+  // App-level credentials identify *this application*, not the user. When they
+  // are configured on the server (the way Tradezella & co. work) the user only
+  // needs their Tradovate username + password, and no per-user API entitlement.
   const creds = {
     name: (body.name || "").trim(),
     password: body.password || "",
-    appId: (body.appId || "").trim(),
+    appId: (body.appId || "").trim() || process.env.TRADOVATE_APP_ID || "",
     appVersion: "1.0",
-    cid: body.cid,
-    sec: (body.sec || "").trim(),
+    cid: body.cid !== undefined && body.cid !== "" ? body.cid : process.env.TRADOVATE_CID,
+    sec: (body.sec || "").trim() || process.env.TRADOVATE_SEC || "",
     deviceId: body.deviceId || globalThis.crypto?.randomUUID?.() || `tm-${Date.now()}`,
   };
-  if (!creds.name || !creds.password || !creds.appId || !creds.sec) {
-    return res.status(400).json({ error: "Missing credentials — name, password, appId and sec are required." });
+  if (!creds.name || !creds.password) {
+    return res.status(400).json({ error: "Missing credentials — username and password are required." });
+  }
+  if (!creds.appId || !creds.sec) {
+    return res.status(400).json({ error: "No API application configured. Either enter App ID / CID / Secret, or set TRADOVATE_APP_ID, TRADOVATE_CID and TRADOVATE_SEC in the server env." });
   }
 
   let tok;

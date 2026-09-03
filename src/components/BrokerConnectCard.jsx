@@ -10,6 +10,7 @@ export default function BrokerConnectCard({ userId }) {
   const [form, setForm] = useState(blankForm());
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState(null); // {kind:'ok'|'err', text}
+  const [advanced, setAdvanced] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -111,24 +112,36 @@ export default function BrokerConnectCard({ userId }) {
               <span style={lbl}>Password</span>
               <input className="inp" type="password" value={form.password} onChange={(e) => set("password", e.target.value)} placeholder="••••••••" />
             </div>
-            <div>
-              <span style={lbl}>App ID</span>
-              <input className="inp" value={form.appId} onChange={(e) => set("appId", e.target.value)} placeholder="e.g. TradeMethod" />
-            </div>
-            <div>
-              <span style={lbl}>CID</span>
-              <input className="inp" value={form.cid} onChange={(e) => set("cid", e.target.value)} placeholder="numeric" />
-            </div>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <span style={lbl}>API Secret (sec)</span>
-              <input className="inp" value={form.sec} onChange={(e) => set("sec", e.target.value)} placeholder="from Tradovate API Access" />
-            </div>
           </div>
+
+          <button
+            onClick={() => setAdvanced((a) => !a)}
+            style={{ background: "none", border: "none", color: "#5b52e0", cursor: "pointer", fontSize: 10, padding: "2px 0", marginBottom: 8 }}
+          >
+            {advanced ? "− Use the app's API application" : "+ Use my own API application (advanced)"}
+          </button>
+
+          {advanced && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <div>
+                <span style={lbl}>App ID</span>
+                <input className="inp" value={form.appId} onChange={(e) => set("appId", e.target.value)} placeholder="e.g. TradeMethod" />
+              </div>
+              <div>
+                <span style={lbl}>CID</span>
+                <input className="inp" value={form.cid} onChange={(e) => set("cid", e.target.value)} placeholder="numeric" />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <span style={lbl}>API Secret (sec)</span>
+                <input className="inp" value={form.sec} onChange={(e) => set("sec", e.target.value)} placeholder="from Tradovate API Access" />
+              </div>
+            </div>
+          )}
           <button onClick={connect} disabled={!!busy} style={{ ...BP, padding: "7px 16px", fontSize: 11 }}>
             {busy === "connect" ? "Connecting…" : "Connect & Test"}
           </button>
           <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 10, lineHeight: 1.5 }}>
-            Get App ID / CID / Secret from Tradovate → Application Settings → API Access (requires the API Access entitlement; prop-firm accounts may need to request it).
+            Normally you only need your Tradovate username and password — the API application is configured on the server. Enter your own App ID / CID / Secret only if you have them (Tradovate → Application Settings → API Access).
           </div>
         </>
       )}
