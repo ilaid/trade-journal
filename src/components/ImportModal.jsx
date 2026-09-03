@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { BP, BS } from "../lib/constants";
 import { parseCsvFile, applyMapping, detectDuplicates, IMPORT_FIELDS } from "../lib/csvImport";
+import { resolveSymbol } from "../lib/instruments";
 
 export default function ImportModal({ CT, existingTrades, onImport, onClose }) {
   const [step, setStep] = useState(1);
@@ -14,7 +15,7 @@ export default function ImportModal({ CT, existingTrades, onImport, onClose }) {
   const [result, setResult] = useState(null);
   const [parseError, setParseError] = useState("");
 
-  const validSymbols = useMemo(() => new Set(Object.keys(CT || {})), [CT]);
+  const instList = useMemo(() => Object.keys(CT || {}), [CT]);
 
   const onFile = async (e) => {
     const file = e.target.files?.[0];
@@ -44,7 +45,11 @@ export default function ImportModal({ CT, existingTrades, onImport, onClose }) {
       return;
     }
     setParseError("");
-    const normalized = applyMapping(rawRows, mapping).map((r) => (validSymbols.has(r.instrument) ? r : { ...r, _errors: [...r._errors, "instrument"] }));
+    // Micro symbols (MNQ, MES…) map to the parent instrument + its micro contract.
+    const normalized = applyMapping(rawRows, mapping).map((r) => {
+      const hit = resolveSymbol(r.instrument, instList);
+      return hit ? { ...r, instrument: hit.instrument, _micro: hit.micro } : { ...r, _errors: [...r._errors, "instrument"] };
+    });
     const withDupes = detectDuplicates(normalized, existingTrades, broker);
     setPreview(withDupes);
     setChecked(Object.fromEntries(withDupes.map((r) => [r._rowIndex, r._errors.length === 0 && !r.isDuplicate])));

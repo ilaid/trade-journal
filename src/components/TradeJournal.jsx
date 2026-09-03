@@ -3,7 +3,7 @@ import { sb } from "../lib/supabase";
 import { DEFAULT_TAGS, TCOLORS, BP } from "../lib/constants";
 import { gs, lp, calcRR, todayStr, nowTime, wk, mk, tPnL, be, BLANK } from "../lib/calc";
 import { exportCSV } from "../lib/csv";
-import { loadInstruments } from "../lib/instruments";
+import { loadInstruments, pickContract } from "../lib/instruments";
 import { loadSettings, saveSetting } from "../lib/settings";
 import { deleteAllScreenshotsForTrade } from "../lib/screenshots";
 import DayPopup from "./DayPopup";
@@ -324,7 +324,7 @@ export default function TradeJournal({ user, onSignOut }) {
     setSyncing(true);
     const imported = [];
     for (const row of normalizedRows) {
-      const contract = CT[row.instrument]?.[0];
+      const contract = pickContract(CT, row.instrument, row._micro);
       if (!contract) continue;
       const spec = contract;
       const pnl = row.pnl ?? lp(row.entryPrice, row.exitPrice, row.contracts, spec, row.direction) ?? 0;

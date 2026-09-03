@@ -40,3 +40,26 @@ export async function loadInstruments() {
     return FALLBACK;
   }
 }
+
+// --- Micro futures ---------------------------------------------------------
+// The journal stores micros as a *contract* under the parent instrument
+// (e.g. "Micro MNQ" under NQ), so a raw micro symbol must be mapped before it
+// can be matched against the instrument list.
+export const MICRO_MAP = { MNQ: "NQ", MES: "ES", MGC: "GC", MCL: "CL", M2K: "RTY", MYM: "YM", M6E: "6E", SIL: "SI" };
+
+// Resolve a raw symbol against the available instruments.
+// Returns { instrument, micro } or null when nothing matches.
+export function resolveSymbol(raw, INST = []) {
+  const s = String(raw || "").trim().toUpperCase();
+  if (!s) return null;
+  if (INST.includes(s)) return { instrument: s, micro: false };
+  const parent = MICRO_MAP[s];
+  if (parent && INST.includes(parent)) return { instrument: parent, micro: true };
+  return null;
+}
+
+// Pick an instrument's contract, preferring the micro one when asked.
+export function pickContract(CT, instrument, micro) {
+  const list = (CT || {})[instrument] || [];
+  return (micro && list.find((c) => (c.label || "").toLowerCase().includes("micro"))) || list[0] || null;
+}
