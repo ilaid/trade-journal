@@ -16,11 +16,12 @@ const STATUSES = [
   ["archived", "בארכיון"],
 ];
 
-export default function Accounts({ accounts, trades, todayKey, activeId, onSetActive, onCreate, onUpdate, onDelete }) {
+export default function Accounts({ accounts, trades, todayKey, activeId, onSetActive, onCreate, onUpdate, onDelete, onAdopt }) {
   const [editing, setEditing] = useState(null); // null | "new" | row
   const [f, setF] = useState(BLANK_ACC);
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+  const unassigned = useMemo(() => (trades || []).filter((t) => !t.accountId).length, [trades]);
 
   const openNew = () => {
     setF(BLANK_ACC);
@@ -68,6 +69,12 @@ export default function Accounts({ accounts, trades, todayKey, activeId, onSetAc
         </button>
       </div>
 
+      {unassigned > 0 && (accounts || []).length > 0 && (
+        <div className="sc" style={{ marginBottom: 12, background: "#fef3c7", borderColor: "#fcd34d", fontSize: 12, color: "#92400e", lineHeight: 1.6 }}>
+          יש לך {unassigned} עסקאות שעדיין לא משויכות לאף תיק (מלפני שהוספנו את התכונה). בחר תיק למטה ולחץ "שייך עסקאות ללא תיק".
+        </div>
+      )}
+
       {(accounts || []).length === 0 ? (
         <div style={{ textAlign: "center", padding: "50px 0", color: "#94a3b8" }}>
           <div style={{ fontSize: 34 }}>💼</div>
@@ -84,6 +91,8 @@ export default function Accounts({ accounts, trades, todayKey, activeId, onSetAc
               onSetActive={() => onSetActive(a.id)}
               onEdit={() => openEdit(a)}
               onDelete={() => onDelete(a)}
+              unassigned={unassigned}
+              onAdopt={() => onAdopt(a)}
             />
           ))}
         </div>
@@ -92,7 +101,7 @@ export default function Accounts({ accounts, trades, todayKey, activeId, onSetAc
   );
 }
 
-function AccountRow({ a, stats, isActive, onSetActive, onEdit, onDelete }) {
+function AccountRow({ a, stats, isActive, onSetActive, onEdit, onDelete, unassigned, onAdopt }) {
   const line = (l, v, c) => (
     <div style={{ minWidth: 96 }}>
       <div style={{ fontSize: 9, color: "#64748b" }}>{l}</div>
@@ -114,6 +123,11 @@ function AccountRow({ a, stats, isActive, onSetActive, onEdit, onDelete }) {
           {!isActive && (
             <button className="pill" onClick={onSetActive} style={{ fontSize: 10 }}>
               הפוך לפעיל
+            </button>
+          )}
+          {unassigned > 0 && (
+            <button className="pill" onClick={onAdopt} style={{ fontSize: 10, borderColor: "#d97706", color: "#b45309" }}>
+              שייך {unassigned} עסקאות ללא תיק
             </button>
           )}
           <button className="pill" onClick={onEdit} style={{ fontSize: 10 }}>

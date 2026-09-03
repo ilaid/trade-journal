@@ -6,7 +6,7 @@
 //
 // Idempotent: each closed round-trip (fillPair) is written with a stable
 // external_id, so the unique index blocks duplicates even if the cursor lags.
-import { supaAdmin, importTrade } from "../_lib/trade.js";
+import { supaAdmin, importTrade, activeAccountId } from "../_lib/trade.js";
 import { userFromRequest } from "../_lib/auth.js";
 import { accessToken, renew, listFillPairs, listFills, contractItem } from "../_lib/tradovate.js";
 
@@ -61,6 +61,7 @@ async function syncOne(supa, conn) {
     return name;
   };
 
+  const accountId = await activeAccountId(supa, conn.user_id);
   const fresh = (pairs || []).filter((p) => Number(p.id) > lastId).sort((a, b) => a.id - b.id);
   let imported = 0;
   let maxId = lastId;
@@ -83,6 +84,7 @@ async function syncOne(supa, conn) {
         timeISO: long ? buy.timestamp : sell.timestamp,
         notes: "Auto-imported from Tradovate",
         broker: "Tradovate",
+        accountId,
       });
       if (r.ok && !r.duplicate) imported++;
     } catch {
