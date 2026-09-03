@@ -20,12 +20,15 @@ import Settings from "./tabs/Settings";
 import BacktestArea from "./tabs/BacktestArea";
 import InvestingArea from "./tabs/InvestingArea";
 import { syncTradovate } from "../lib/broker";
+import AccountsTab from "./tabs/Accounts";
+import AccountStatus from "./AccountStatus";
+import { listAccounts, createAccount, updateAccount, deleteAccount, getActiveAccount, setActiveAccount } from "../lib/accounts";
 
 const TRADE_SELECT = `
   id, user_id, is_historical, trade_date, trade_time, instrument_id, contract_id,
   direction, entry_price, total_contracts, stop_loss, take_profit, risk_reward, pnl,
   emotion_before, emotion_during, followed_plan, mistakes, events, what_went_well,
-  what_to_improve, notes, source, broker, external_id, backtest_folder_id,
+  what_to_improve, notes, source, broker, external_id, backtest_folder_id, account_id,
   instruments(symbol),
   trade_exits(id, exit_price, contracts, pnl, exit_order),
   trade_tags(tags(id, name, color))
@@ -36,6 +39,7 @@ function hydrateTrade(row) {
     id: row.id,
     isHistorical: row.is_historical,
     backtestFolderId: row.backtest_folder_id ?? null,
+    accountId: row.account_id ?? null,
     date: row.trade_date,
     time: row.trade_time ? String(row.trade_time).slice(0, 5) : "",
     instrument: row.instruments?.symbol,
@@ -89,12 +93,52 @@ export default function TradeJournal({ user, onSignOut }) {
   const [investOpen, setInvestOpen] = useState(false);
   const [dayNoteVal, setDayNoteVal] = useState("");
   const [monthlyGoal, setMonthlyGoal] = useState(1000);
+  const [accounts, setAccounts] = useState([]);
+  const [activeAccountId, setActiveAccountId] = useState(null);
 
   useEffect(() => {
     loadSettings(user.id).then((s) => {
       if (Number.isFinite(s.monthlyGoal) && s.monthlyGoal > 0) setMonthlyGoal(s.monthlyGoal);
     });
   }, [user.id]);
+
+  // Trading accounts + which one new trades are attributed to.
+  useEffect(() => {
+    (async () => {
+      try {
+        const [list, active] = await Promise.all([listAccounts(user.id), getActiveAccount(user.id)]);
+        setAccounts(list);
+        setActiveAccountId(active);
+      } catch {
+        // table not migrated yet — the panel simply shows the empty state
+      }
+    })();
+  }, [user.id]);
+
+  const refreshAccounts = async () => setAccounts(await listAccounts(user.id));
+
+  const chooseAccount = async (id) => {
+    setActiveAccountId(id);
+    await setActiveAccount(user.id, id);
+  };
+
+  const addAccount = async (a) => {
+    const created = await createAccount(user.id, a);
+    await refreshAccounts();
+    if (!activeAccountId) await chooseAccount(created.id);
+  };
+
+  const editAccount = async (id, a) => {
+    await updateAccount(user.id, id, a);
+    await refreshAccounts();
+  };
+
+  const removeAccount = async (a) => {
+    if (!window.confirm(`למחוק את התיק "${a.name}"? העסקאות יישמרו אך לא ישויכו לתיק.`)) return;
+    await deleteAccount(user.id, a.id);
+    if (activeAccountId === a.id) await chooseAccount(null);
+    await refreshAccounts();
+  };
 
   const saveGoal = (v) => {
     setMonthlyGoal(v);
@@ -206,9 +250,12 @@ export default function TradeJournal({ user, onSignOut }) {
       };
       const { error } = await sb.rpc("save_trade", payload);
       if (error) throw error;
-      // save_trade doesn't touch backtest_folder_id; set it for folder trades.
-      if (tradeForm.backtestFolderId) {
-        await sb.from("trades").update({ backtest_folder_id: tradeForm.backtestFolderId }).eq("id", tradeForm.id).eq("user_id", user.id);
+      // save_trade doesn't touch these columns; set them after the RPC.
+      const extra = {};
+      if (tradeForm.backtestFolderId) extra.backtest_folder_id = tradeForm.backtestFolderId;
+      if (tradeForm.accountId !== undefined) extra.account_id = tradeForm.accountId ?? null;
+      if (Object.keys(extra).length) {
+        await sb.from("trades").update(extra).eq("id", tradeForm.id).eq("user_id", user.id);
       }
     } catch (e) {
       console.error("Failed to save trade:", e);
@@ -280,7 +327,7 @@ export default function TradeJournal({ user, onSignOut }) {
   const contractsOk = !form || usedContracts === 0 || Math.abs(usedContracts - (parseFloat(form.totalContracts) || 0)) < 0.001;
 
   const openAdd = () => {
-    setForm({ ...BLANK(CT, INST), date: todayStr(), time: nowTime() });
+    setForm({ ...BLANK(CT, INST), date: todayStr(), time: nowTime(), accountId: activeAccountId });
     setStep(1);
     setEditId(null);
     setModal("add");
@@ -517,6 +564,7 @@ export default function TradeJournal({ user, onSignOut }) {
       <div style={{ display: "flex", gap: 2, padding: "10px 24px 0", borderBottom: "1px solid #f8fafc", overflowX: "auto" }}>
         {[
           ["dashboard", "📊 Dashboard"],
+          ["accounts", "💼 תיקים"],
           ["calendar", "📅 Calendar"],
           ["trades", "📋 Trades"],
           ["stats", "📈 Analytics"],
@@ -531,6 +579,30 @@ export default function TradeJournal({ user, onSignOut }) {
       </div>
 
       <div style={{ padding: "22px 24px", maxWidth: 1100, margin: "0 auto" }}>
+        {tab === "dashboard" && (
+          <AccountStatus
+            accounts={accounts}
+            activeId={activeAccountId}
+            onChangeActive={chooseAccount}
+            trades={journalTrades}
+            todayKey={todayStr()}
+            onManage={() => setTab("accounts")}
+          />
+        )}
+
+        {tab === "accounts" && (
+          <AccountsTab
+            accounts={accounts}
+            trades={journalTrades}
+            todayKey={todayStr()}
+            activeId={activeAccountId}
+            onSetActive={chooseAccount}
+            onCreate={addAccount}
+            onUpdate={editAccount}
+            onDelete={removeAccount}
+          />
+        )}
+
         {tab === "dashboard" && (
           <Dashboard
             trades={journalTrades}
