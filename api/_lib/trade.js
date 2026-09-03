@@ -63,6 +63,16 @@ async function resolve(supa, userId, symbol, contractHint) {
   return { inst, contract };
 }
 
+// The account new API-imported trades belong to (user_settings.data.active_account_id).
+export async function activeAccountId(supa, userId) {
+  try {
+    const { data } = await supa.from("user_settings").select("data").eq("user_id", userId).single();
+    return data?.data?.active_account_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Resolve, price and insert one trade (+ exit). `t` is a normalized payload:
 //   { symbol, direction, entry, exit, stop, target, qty, providedPnl,
 //     externalId, timeISO, notes, broker, contractHint, backtestFolderId }
@@ -132,6 +142,7 @@ export async function importTrade(supa, userId, t) {
     broker: norm(t.broker) || "API",
     external_id: t.externalId ? norm(t.externalId) : null,
     backtest_folder_id: t.backtestFolderId ?? null,
+    account_id: t.accountId ?? null,
   });
   if (tErr) {
     // The unique index on (user_id, broker, external_id) makes re-imports idempotent.

@@ -22,7 +22,7 @@ import InvestingArea from "./tabs/InvestingArea";
 import { syncTradovate } from "../lib/broker";
 import AccountsTab from "./tabs/Accounts";
 import AccountStatus from "./AccountStatus";
-import { listAccounts, createAccount, updateAccount, deleteAccount, getActiveAccount, setActiveAccount } from "../lib/accounts";
+import { listAccounts, createAccount, updateAccount, deleteAccount, getActiveAccount, setActiveAccount, assignUnassignedTrades } from "../lib/accounts";
 
 const TRADE_SELECT = `
   id, user_id, is_historical, trade_date, trade_time, instrument_id, contract_id,
@@ -138,6 +138,19 @@ export default function TradeJournal({ user, onSignOut }) {
     await deleteAccount(user.id, a.id);
     if (activeAccountId === a.id) await chooseAccount(null);
     await refreshAccounts();
+  };
+
+  // Attach trades that pre-date the accounts feature to a chosen account.
+  const adoptTrades = async (a) => {
+    const count = (trades || []).filter((t) => !t.accountId && !t.backtestFolderId).length;
+    if (!count) return;
+    if (!window.confirm(`לשייך ${count} עסקאות ללא תיק אל "${a.name}"?`)) return;
+    try {
+      await assignUnassignedTrades(user.id, a.id);
+      setTradesState((ts) => ts.map((t) => (!t.accountId && !t.backtestFolderId ? { ...t, accountId: a.id } : t)));
+    } catch (e) {
+      alert("השיוך נכשל: " + (e.message || e));
+    }
   };
 
   const saveGoal = (v) => {
@@ -403,6 +416,7 @@ export default function TradeJournal({ user, onSignOut }) {
         source: "import",
         broker,
         externalId: row.externalId,
+        accountId: activeAccountId,
       };
       try {
         await saveTradeToSupabase(trade, pnl);
@@ -600,6 +614,7 @@ export default function TradeJournal({ user, onSignOut }) {
             onCreate={addAccount}
             onUpdate={editAccount}
             onDelete={removeAccount}
+            onAdopt={adoptTrades}
           />
         )}
 
@@ -692,6 +707,7 @@ export default function TradeJournal({ user, onSignOut }) {
           CT={CT}
           INST={INST}
           totalPnL_form={totalPnL_form}
+          accounts={accounts}
           onClose={closeModal}
           onSave={saveTrade}
         />

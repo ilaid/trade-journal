@@ -36,10 +36,13 @@ export default async function handler(req, res) {
 
   // When a backtest folder is "recording", imports land in it; else the live journal.
   const activeFolder = owner.data?.active_backtest_folder_id ?? null;
+  // Live-journal imports are attributed to the active trading account.
+  const activeAccount = activeFolder ? null : owner.data?.active_account_id ?? null;
 
   try {
     const result = await importTrade(supa, owner.user_id, {
       backtestFolderId: activeFolder,
+      accountId: activeAccount,
       symbol: body.symbol || body.ticker || body.instrument,
       direction: body.direction || body.action || body.side,
       entry: body.entry ?? body.entry_price ?? body.price ?? body.close,

@@ -49,6 +49,20 @@ export async function setActiveAccount(userId, id) {
   await saveSetting(userId, "active_account_id", id ?? null);
 }
 
+// Attach every still-unassigned journal trade (not backtest) to an account.
+// Used to adopt trades that pre-date the accounts feature.
+export async function assignUnassignedTrades(userId, accountId) {
+  const { data, error } = await sb
+    .from("trades")
+    .update({ account_id: accountId })
+    .eq("user_id", userId)
+    .is("account_id", null)
+    .is("backtest_folder_id", null)
+    .select("id");
+  if (error) throw error;
+  return (data || []).length;
+}
+
 // --- Risk math -------------------------------------------------------------
 // `trades` are the app's flat trade objects belonging to this account.
 // Returns everything the status panel needs. Values are absolute dollars.

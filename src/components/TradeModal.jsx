@@ -9,7 +9,7 @@ export default function TradeModal({
   form, set, step, setStep, editId, closing,
   addExit, updateExit, removeExit, contractsOk, usedContracts,
   toggleEvent, toggleTag, toggleMistake,
-  tags, CT, INST, totalPnL_form, onClose, onSave,
+  tags, CT, INST, totalPnL_form, onClose, onSave, accounts = [],
 }) {
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState(null); // {kind:'ok'|'err', text}
@@ -84,6 +84,19 @@ export default function TradeModal({
                   <input className="inp" type="time" value={form.time} onChange={(e) => set("time", e.target.value)} />
                 </div>
               </div>
+              {accounts.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <span className="fl">Account</span>
+                  <select className="inp" value={form.accountId ?? ""} onChange={(e) => set("accountId", e.target.value ? Number(e.target.value) : null)}>
+                    <option value="">— ללא תיק —</option>
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
                 {INST.map((i) => (
                   <button
