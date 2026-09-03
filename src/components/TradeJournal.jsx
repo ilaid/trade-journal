@@ -663,7 +663,7 @@ export default function TradeJournal({ user, onSignOut }) {
 
         {tab === "playbook" && <Playbook userId={user.id} />}
 
-        {tab === "settings" && <Settings trades={trades} user={user} setTrades={setTrades} sb={sb} CT={CT} INST={INST} instrumentMeta={instrumentMeta} userId={user.id} onInstrumentsChanged={(ct, inst, meta) => { setCT(ct); setINST(inst); setInstrumentMeta(meta); }} />}
+        {tab === "settings" && <Settings trades={journalTrades} user={user} setTrades={setTrades} sb={sb} CT={CT} INST={INST} instrumentMeta={instrumentMeta} userId={user.id} onInstrumentsChanged={(ct, inst, meta) => { setCT(ct); setINST(inst); setInstrumentMeta(meta); }} />}
       </div>
 
       {dayPopup && (
@@ -715,7 +715,7 @@ export default function TradeJournal({ user, onSignOut }) {
 
       {modal === "tag" && <TagModal newTag={newTag} setNewTag={setNewTag} onCreate={addTag} onClose={() => setModal(null)} />}
 
-      {modal === "import" && <ImportModal CT={CT} existingTrades={trades} onImport={importTrades} onClose={() => setModal(null)} />}
+      {modal === "import" && <ImportModal CT={CT} existingTrades={journalTrades} onImport={importTrades} onClose={() => setModal(null)} />}
     </div>
   );
 }
