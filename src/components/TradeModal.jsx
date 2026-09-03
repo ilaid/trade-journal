@@ -2,10 +2,8 @@ import { useState } from "react";
 import { f$ } from "../lib/calc";
 import { DIRS, EMO, MIS, EVENTS, BP, BS } from "../lib/constants";
 import { extractTradeFromImage } from "../lib/vision";
+import { resolveSymbol, pickContract } from "../lib/instruments";
 import ScreenshotUploader from "./ScreenshotUploader";
-
-// Micro symbols map to their parent instrument (+ micro contract) for auto-fill.
-const MICRO_MAP = { MNQ: "NQ", MES: "ES", MGC: "GC", MCL: "CL", MYM: "YM", M2K: "RTY", SIL: "SI" };
 
 export default function TradeModal({
   form, set, step, setStep, editId, closing,
@@ -25,17 +23,10 @@ export default function TradeModal({
     if (f.target != null) set("tp", String(f.target));
     if (f.exit != null) updateExit(0, "exitPrice", String(f.exit));
     if (f.symbol) {
-      const sym = String(f.symbol).toUpperCase();
-      let instrument = INST.includes(sym) ? sym : null;
-      let micro = false;
-      if (!instrument && MICRO_MAP[sym] && INST.includes(MICRO_MAP[sym])) {
-        instrument = MICRO_MAP[sym];
-        micro = true;
-      }
-      if (instrument) {
-        set("instrument", instrument);
-        const contracts = CT[instrument] || [];
-        const chosen = (micro && contracts.find((c) => c.label.toLowerCase().includes("micro"))) || contracts[0];
+      const hit = resolveSymbol(f.symbol, INST);
+      if (hit) {
+        set("instrument", hit.instrument);
+        const chosen = pickContract(CT, hit.instrument, hit.micro);
         if (chosen) set("contractTypeId", chosen.id);
       }
     }
