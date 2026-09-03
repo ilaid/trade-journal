@@ -19,6 +19,7 @@ import Playbook from "./tabs/Playbook";
 import Settings from "./tabs/Settings";
 import BacktestArea from "./tabs/BacktestArea";
 import InvestingArea from "./tabs/InvestingArea";
+import { syncTradovate } from "../lib/broker";
 
 const TRADE_SELECT = `
   id, user_id, is_historical, trade_date, trade_time, instrument_id, contract_id,
@@ -141,6 +142,27 @@ export default function TradeJournal({ user, onSignOut }) {
       setDbLoading(false);
     };
     load();
+  }, [user.id]);
+
+  // Auto-import from a connected broker (Tradovate) on load: pull newly-closed
+  // trades in the background, then refresh the list if anything came in.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await syncTradovate();
+        const imported = (r.results || []).reduce((s, x) => s + (x.imported || 0), 0);
+        if (!cancelled && imported > 0) {
+          const { data } = await sb.from("trades").select(TRADE_SELECT).eq("user_id", user.id).order("trade_date", { ascending: false });
+          if (!cancelled && data) setTradesState(data.map(hydrateTrade));
+        }
+      } catch {
+        // best-effort — not connected / offline; ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [user.id]);
 
   useEffect(() => {

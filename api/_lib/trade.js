@@ -21,6 +21,10 @@ export const cleanSymbol = (raw) => {
   s = s.replace(/!+$/, "");
   return s;
 };
+
+// Micro futures resolve to their parent instrument + the micro contract, since
+// the journal stores micros as a contract under the parent (e.g. MNQ -> NQ).
+export const MICRO_MAP = { MNQ: "NQ", MES: "ES", MGC: "GC", MCL: "CL", M2K: "RTY", MYM: "YM", M6E: "6E", SIL: "SI" };
 export const dirOf = (raw) => {
   const s = norm(raw).toLowerCase();
   if (["buy", "long", "b", "bought"].includes(s)) return "Long";
@@ -66,7 +70,12 @@ async function resolve(supa, userId, symbol, contractHint) {
 // Returns { ok, id, symbol, direction, pnl }. Throws TradeError on bad input,
 // or a plain Error on a DB failure.
 export async function importTrade(supa, userId, t) {
-  const symbol = cleanSymbol(t.symbol);
+  let symbol = cleanSymbol(t.symbol);
+  let contractHint = t.contractHint;
+  if (MICRO_MAP[symbol]) {
+    contractHint = "micro"; // the symbol itself declares a micro contract
+    symbol = MICRO_MAP[symbol];
+  }
   const direction = dirOf(t.direction);
   const entry = num(t.entry);
   const exit = num(t.exit);
@@ -78,7 +87,7 @@ export async function importTrade(supa, userId, t) {
   if (!direction) throw new TradeError(400, "Missing/invalid direction (use buy/sell or long/short)");
   if (entry == null) throw new TradeError(400, "Missing entry price");
 
-  const { inst, contract } = await resolve(supa, userId, symbol, t.contractHint);
+  const { inst, contract } = await resolve(supa, userId, symbol, contractHint);
 
   let pnl = num(t.providedPnl);
   if (pnl == null && exit != null) {
