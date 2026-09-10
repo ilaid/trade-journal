@@ -1,6 +1,12 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.1
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.2
 // Pine Script V5
+//
+// v5.2:
+//  - The markers on the bars use the small triangles ▴ ▾ / ▵ ▿ instead of the
+//    full-height ▲ ▼ / △ ▽. Same family, about half the height, and the
+//    solid-vs-hollow distinction survives intact. size.tiny is kept on
+//    purpose: size.auto would shrink them to nothing when zoomed out.
 //
 // v5.1 — the line says what happened and who was in it, nothing else:
 //  - A record is "<TF> <arrow> <who>". "who" is the assets that took part in
@@ -20,8 +26,8 @@
 // v4.x history:
 //  - YM only creates a divergence when it shows STRENGTH (up while ES and/or
 //    NQ are down). ES vs NQ: any direction mismatch counts.
-//  - Swing detected on EVERY included asset: solid ▲/▼ when the swing is on
-//    the chart symbol, hollow △/▽ when it is on another asset only.
+//  - Swing detected on EVERY included asset: solid ▴/▾ when the swing is on
+//    the chart symbol, hollow ▵/▿ when it is on another asset only.
 //  - Pending marker (•) while a PCP bar's swing verdict is not in yet.
 //  - Weekly is a full category, on the chart and in the line.
 //  - Symbols are three input.symbol fields, so only three contracts load.
@@ -216,19 +222,19 @@ c_bear_ext = color.new(i_col_bear, i_ext_transp)
 c_bull_ext = color.new(i_col_bull, i_ext_transp)
 
 plotchar(psp_bear_own ? 1 : na, title="PSP Bear — Own Asset",
-     char="▲", location=location.abovebar, color=i_col_bear,
+     char="▴", location=location.abovebar, color=i_col_bear,
      offset=-1, size=size.tiny)
 
 plotchar(psp_bear_ext ? 1 : na, title="PSP Bear — Other Asset",
-     char="△", location=location.abovebar, color=c_bear_ext,
+     char="▵", location=location.abovebar, color=c_bear_ext,
      offset=-1, size=size.tiny)
 
 plotchar(psp_bull_own ? 1 : na, title="PSP Bull — Own Asset",
-     char="▼", location=location.belowbar, color=i_col_bull,
+     char="▾", location=location.belowbar, color=i_col_bull,
      offset=-1, size=size.tiny)
 
 plotchar(psp_bull_ext ? 1 : na, title="PSP Bull — Other Asset",
-     char="▽", location=location.belowbar, color=c_bull_ext,
+     char="▿", location=location.belowbar, color=c_bull_ext,
      offset=-1, size=size.tiny)
 
 // ── Pending: self-clearing, because a bar is undecided exactly while
