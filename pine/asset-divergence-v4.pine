@@ -1,6 +1,15 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.2
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.3
 // Pine Script V5
+//
+// v5.3:
+//  - The line lists EVERY standing break from 1H / 4H / 1D / 1W side by
+//    side again, not just the most recent one. The timeframe gate is
+//    unchanged: on a 1H chart 1H is absent, because it is drawn on the bars.
+//  - Each timeframe owns one cell with three states — a standing break in
+//    its direction's colour, else the grey pending bar, else nothing.
+//  - "live" is now a flag of its own instead of dir == 0, so dir and who
+//    survive an invalidation and the "broken" alert can still name what broke.
 //
 // v5.2:
 //  - The markers on the bars use the small triangles ▴ ▾ / ▵ ▿ instead of the
@@ -14,8 +23,8 @@
 //    gone: the list of names already says where the divergence came from.
 //  - No timestamp. The line reports that a break happened, not when.
 //  - No timer and no "broken" text. A break whose level is taken simply
-//    disappears; otherwise it stands until a newer break replaces it.
-//  - Second, grey slot beside it: a higher-timeframe bar that closed as a PCP
+//    disappears.
+//  - Grey state: a higher-timeframe bar that closed as a PCP
 //    but whose swing verdict is not in yet. Same idea as the grey dot on the
 //    bars, and it clears itself the same way — the next close either promotes
 //    it to a coloured break or drops it.
@@ -354,9 +363,9 @@ t1w = i_use_nq ? tn1w : i_use_es ? te1w : ty1w
 
 type MtfSt
     int    lastT  = 0     // time of the bar already stepped — blocks a double step
-    int    dir    = 0     // -1 bearish · 0 none · 1 bullish
+    bool   live   = false // a break is standing right now
+    int    dir    = 0     // -1 bearish · 1 bullish — kept after an invalidation
     string who    = ""    // assets that took part in the divergence, or "ALL"
-    int    bornT  = 0     // close time of the bar that confirmed the break
     bool   isNew  = false // set on the chart bar the break was recorded
     bool   isGone = false // set on the chart bar it was invalidated
     bool   pndOn  = false // the bar that just closed is a PCP, verdict not in
@@ -404,12 +413,12 @@ f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y) =>
         s.lastT := t
 
         // ── 1. was the level taken by the bar that just closed? ──
-        if s.dir != 0
+        if s.live
             tkN = f_taken(v.nq, s.dir, n.h1, n.l1, n.c1)
             tkE = f_taken(v.es, s.dir, e.h1, e.l1, e.c1)
             tkY = f_taken(v.ym, s.dir, y.h1, y.l1, y.c1)
             if tkN or tkE or tkY
-                s.dir    := 0
+                s.live   := false
                 s.isGone := true
                 v.nq := na
                 v.es := na
@@ -457,15 +466,15 @@ f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y) =>
                 gE   = bear ? hiE : loE
                 gY   = bear ? hiY : loY
 
+                s.live   := true
                 s.dir    := bear ? -1 : 1
                 s.who    := f_who(divP, divY, okN, okE, dn, de)
-                s.bornT  := t
                 s.isNew  := true
                 s.isGone := false
                 v.nq := gN ? (bear ? n.h2 : n.l2) : na
                 v.es := gE ? (bear ? e.h2 : e.l2) : na
                 v.ym := gY ? (bear ? y.h2 : y.l2) : na
-    s.dir
+    s.live
 
 var MtfSt st1h = MtfSt.new()
 var MtfSt st4h = MtfSt.new()
@@ -478,15 +487,12 @@ f_step(st1d, v1d, t1d, n1d, e1d, y1d)
 f_step(st1w, v1w, t1w, n1w, e1w, y1w)
 
 // ══════════════════════════════════════════════════════════════
-//  THE TWO SLOTS
+//  THE LINE
 //
-//  Left  — the last confirmed break, from whichever timeframe broke most
-//          recently. A newer break replaces it. If its level is taken it
-//          just disappears: no timer, no "broken" text.
-//  Right — grey. A higher-timeframe bar closed with a divergence and its
-//          swing verdict is not in yet. It needs no timer either: the next
-//          close on that timeframe overwrites it, either promoting it to a
-//          coloured break or dropping it.
+//  Every timeframe gets its own cell and renders itself in one of three
+//  states: a standing break in its direction's colour, otherwise the grey
+//  bar that closed with a divergence and is still waiting on its swing
+//  verdict, otherwise nothing. Cells pack left, highest timeframe first.
 //
 //  Only timeframes ABOVE the chart's take part. The chart's own is already
 //  drawn on the bars, and anything below it cannot be tracked accurately.
@@ -498,67 +504,19 @@ sh4h = timeframe.in_seconds("240") > chartSec
 sh1d = timeframe.in_seconds("D")   > chartSec
 sh1w = timeframe.in_seconds("W")   > chartSec
 
-f_txt(MtfSt s, string nm) =>
-    nm + " " + (s.dir < 0 ? "▼" : "▲") + " " + s.who
+f_arrow(MtfSt s) =>
+    s.dir < 0 ? "▼" : "▲"
 
-var int    curT   = 0    // bornT of the record on screen
-var int    curIdx = -1   // 0 = 1W · 1 = 1D · 2 = 4H · 3 = 1H
-var int    curDir = 0
-var string curTx  = ""
+f_rec(MtfSt s, string nm) =>
+    s.live ? nm + " " + f_arrow(s) + " " + s.who : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
 
-// Read the invalidation of what is on screen BEFORE anything replaces it, so
-// a break and its replacement landing on the same bar stay distinct.
-gone   = curIdx == 0 ? st1w.isGone : curIdx == 1 ? st1d.isGone : curIdx == 2 ? st4h.isGone : curIdx == 3 ? st1h.isGone : false
-goneTx = gone ? curTx : ""
+f_col(MtfSt s) =>
+    s.live ? (s.dir < 0 ? i_col_bear : i_col_bull) : i_col_pend
 
-if gone
-    curIdx := -1
-    curDir := 0
-    curTx  := ""
-
-if sh1w and st1w.isNew and st1w.bornT > curT
-    curT := st1w.bornT
-    curIdx := 0
-    curDir := st1w.dir
-    curTx := f_txt(st1w, "1W")
-if sh1d and st1d.isNew and st1d.bornT > curT
-    curT := st1d.bornT
-    curIdx := 1
-    curDir := st1d.dir
-    curTx := f_txt(st1d, "1D")
-if sh4h and st4h.isNew and st4h.bornT > curT
-    curT := st4h.bornT
-    curIdx := 2
-    curDir := st4h.dir
-    curTx := f_txt(st4h, "4H")
-if sh1h and st1h.isNew and st1h.bornT > curT
-    curT := st1h.bornT
-    curIdx := 3
-    curDir := st1h.dir
-    curTx := f_txt(st1h, "1H")
-
-// The grey slot holds no state of its own — it is read straight off the
-// timeframe that stepped most recently, so it follows the states exactly.
-pndT  = 0
-pndTx = ""
-if sh1w and st1w.pndOn and st1w.lastT > pndT
-    pndT  := st1w.lastT
-    pndTx := "1W ◦ " + st1w.pndWho
-if sh1d and st1d.pndOn and st1d.lastT > pndT
-    pndT  := st1d.lastT
-    pndTx := "1D ◦ " + st1d.pndWho
-if sh4h and st4h.pndOn and st4h.lastT > pndT
-    pndT  := st4h.lastT
-    pndTx := "4H ◦ " + st4h.pndWho
-if sh1h and st1h.pndOn and st1h.lastT > pndT
-    pndT  := st1h.lastT
-    pndTx := "1H ◦ " + st1h.pndWho
-
-recCol = curDir < 0 ? i_col_bear : i_col_bull
-
-// ══════════════════════════════════════════════════════════════
-//  CORNER LINE
-// ══════════════════════════════════════════════════════════════
+r1w = sh1w ? f_rec(st1w, "1W") : ""
+r1d = sh1d ? f_rec(st1d, "1D") : ""
+r4h = sh4h ? f_rec(st4h, "4H") : ""
+r1h = sh1h ? f_rec(st1h, "1H") : ""
 
 // Kept as one-line statements on purpose: Pine treats a continuation line
 // indented by any multiple of four spaces as the start of a block, so a
@@ -574,9 +532,9 @@ mtfPos = i_mtf_v == "למעלה" ? mtfTop : i_mtf_v == "באמצע" ? mtfMid : m
 mtfUp  = i_mtf_v == "למעלה"
 mtfRow = mtfUp ? i_mtf_pad : 0
 
-// Three cells: a cell carries one text colour, and the confirmed record and
-// the grey one have to be coloured apart.
-var table mtfTbl = table.new(mtfPos, 3, 1 + i_mtf_pad, border_width = 0)
+// One cell per timeframe, not one joined string: a cell carries a single
+// text colour, and each timeframe has to be painted in its own state's.
+var table mtfTbl = table.new(mtfPos, 5, 1 + i_mtf_pad, border_width = 0)
 
 c_clear = color.new(color.black, 100)
 
@@ -586,13 +544,30 @@ if barstate.islast and i_mtf_on
             table.cell(mtfTbl, 0, mtfUp ? k : 1 + k, " ",
                  text_size = size.small, bgcolor = c_clear)
 
-    anything = curTx != "" or pndTx != ""
+    anything = r1w != "" or r1d != "" or r4h != "" or r1h != ""
     table.cell(mtfTbl, 0, mtfRow, anything ? "ADI" : "", text_color = i_col_neut,
          text_size = size.small, bgcolor = c_clear)
-    table.cell(mtfTbl, 1, mtfRow, curTx, text_color = recCol,
-         text_size = size.small, bgcolor = c_clear)
-    table.cell(mtfTbl, 2, mtfRow, pndTx, text_color = i_col_pend,
-         text_size = size.small, bgcolor = c_clear)
+
+    col = 1
+    if r1w != ""
+        table.cell(mtfTbl, col, mtfRow, r1w, text_color = f_col(st1w),
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if r1d != ""
+        table.cell(mtfTbl, col, mtfRow, r1d, text_color = f_col(st1d),
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if r4h != ""
+        table.cell(mtfTbl, col, mtfRow, r4h, text_color = f_col(st4h),
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if r1h != ""
+        table.cell(mtfTbl, col, mtfRow, r1h, text_color = f_col(st1h),
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if col <= 4
+        for k = col to 4
+            table.cell(mtfTbl, k, mtfRow, "", bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
 //  PANEL  (optional, off by default)
@@ -612,10 +587,10 @@ pnlR0  = pnlUp ? i_pnl_pad : 0
 var table pnlTbl = table.new(pnlPos, 2, 5 + i_pnl_pad, border_width = 0)
 
 f_stat(MtfSt s, bool shown) =>
-    not shown ? "▶" : s.dir != 0 ? (s.dir < 0 ? "▼" : "▲") + " " + s.who : s.pndOn ? "◦ " + s.pndWho : "—"
+    not shown ? "▶" : s.live ? f_arrow(s) + " " + s.who : s.pndOn ? "◦ " + s.pndWho : "—"
 
 f_statCol(MtfSt s, bool shown) =>
-    not shown ? i_col_neut : s.dir < 0 ? i_col_bear : s.dir > 0 ? i_col_bull : i_col_pend
+    not shown or not s.live ? i_col_neut : s.dir < 0 ? i_col_bear : i_col_bull
 
 if barstate.islast and i_pnl_on
     if i_pnl_pad > 0
@@ -643,14 +618,19 @@ if barstate.islast and i_pnl_on
 //  working with the chart closed.
 // ══════════════════════════════════════════════════════════════
 
-newBreak = (sh1w and st1w.isNew) or (sh1d and st1d.isNew) or
-           (sh4h and st4h.isNew) or (sh1h and st1h.isNew)
+// dir and who outlive an invalidation, so a broken break can still name
+// itself here.
+f_alertTx(MtfSt s, string nm) =>
+    nm + " " + f_arrow(s) + " " + s.who
 
-if i_mtf_alert and i_mtf_on and gone and goneTx != ""
+newTx  = sh1w and st1w.isNew ? f_alertTx(st1w, "1W") : sh1d and st1d.isNew ? f_alertTx(st1d, "1D") : sh4h and st4h.isNew ? f_alertTx(st4h, "4H") : sh1h and st1h.isNew ? f_alertTx(st1h, "1H") : ""
+goneTx = sh1w and st1w.isGone ? f_alertTx(st1w, "1W") : sh1d and st1d.isGone ? f_alertTx(st1d, "1D") : sh4h and st4h.isGone ? f_alertTx(st4h, "4H") : sh1h and st1h.isGone ? f_alertTx(st1h, "1H") : ""
+
+if i_mtf_alert and i_mtf_on and goneTx != ""
     alert("ADI: נשבר — " + goneTx, alert.freq_once_per_bar)
 
-if i_mtf_alert and i_mtf_on and newBreak and curTx != ""
-    alert("ADI: " + curTx, alert.freq_once_per_bar)
+if i_mtf_alert and i_mtf_on and newTx != ""
+    alert("ADI: " + newTx, alert.freq_once_per_bar)
 
 // ══════════════════════════════════════════════════════════════
 //  END OF SCRIPT
