@@ -1,6 +1,23 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.4
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.5
 // Pine Script V5
+//
+// v5.5 — fixes "Memory limits exceeded", which v5.4 caused:
+//  v5.4 added six more request.security calls, each returning an eleven
+//  element tuple, taking the script from 144 stored series to 210. That is
+//  the trap this file warns about below: it compiles clean and simply
+//  refuses to load. The fix is to stop hauling raw numbers across and do
+//  the work inside the request instead.
+//    - The timeframe clock is now time_close(tf), a built-in that needs NO
+//      request.security at all. One series saved per asset per timeframe.
+//    - Candle direction is computed inside the request: one series instead
+//      of the open and close it was derived from.
+//    - The three-bar swing is computed inside the request: one boolean
+//      instead of the three highs (or lows) it was derived from.
+//    - The fast 5m/15m heads-up carries three series per asset instead of
+//      eleven. It keeps no state and tests no levels, so it needs neither
+//      the levels nor the clock.
+//  Result: 138 stored series, below the 144 that loaded fine before v5.4.
 //
 // v5.4:
 //  - The CHART'S OWN timeframe is back in the line. Leaving it out was a
@@ -305,50 +322,73 @@ barcolor(tf_allowed and i_show_pcp_bars and is_pcp ? i_col_pcp : na,
 //  Watch the weekly and daily from a 15m chart or higher.
 // ══════════════════════════════════════════════════════════════
 
+// What a stepped timeframe needs, and nothing more. d1/d2 are directions
+// already reduced inside the request; swH/swL are the three-bar swing already
+// decided there. hi2/lo2 are the swing bar's extremes, which become the level
+// to defend. c1/h1/l1 are the bar that just closed, for the "taken" test.
 type AB
-    float o1 = na
-    float o2 = na
-    float c2 = na
-    float c1 = na
-    float h1 = na
-    float h2 = na
-    float h3 = na
-    float l1 = na
-    float l2 = na
-    float l3 = na
+    float d1  = na
+    float d2  = na
+    bool  swH = false
+    bool  swL = false
+    float hi2 = na
+    float lo2 = na
+    float c1  = na
+    float h1  = na
+    float l1  = na
+
+// The fast heads-up keeps no state and tests no level, so it needs the swing
+// bar and nothing else.
+type FB
+    float d2  = na
+    bool  swH = false
+    bool  swL = false
 
 f_load(AB b, simple string sym, simple string tf) =>
-    [tc, o1, o2, c2, c1, h1, h2, h3, l1, l2, l3] = request.security(sym, tf,
-         [time_close[1], open[1], open[2], close[2], close[1],
-          high[1], high[2], high[3], low[1], low[2], low[3]],
+    [d1, d2, swH, swL, hi2, lo2, c1, h1, l1] = request.security(sym, tf,
+         [close[1] > open[1] ? 1.0 : close[1] < open[1] ? -1.0 : na(close[1]) ? na : 0.0,
+          close[2] > open[2] ? 1.0 : close[2] < open[2] ? -1.0 : na(close[2]) ? na : 0.0,
+          high[2] > high[3] and high[2] > high[1],
+          low[2]  < low[3]  and low[2]  < low[1],
+          high[2], low[2], close[1], high[1], low[1]],
          lookahead = barmerge.lookahead_off,
          gaps      = barmerge.gaps_off)
-    b.o1 := o1
-    b.o2 := o2
-    b.c2 := c2
-    b.c1 := c1
-    b.h1 := h1
-    b.h2 := h2
-    b.h3 := h3
-    b.l1 := l1
-    b.l2 := l2
-    b.l3 := l3
-    tc
+    b.d1  := d1
+    b.d2  := d2
+    b.swH := swH
+    b.swL := swL
+    b.hi2 := hi2
+    b.lo2 := lo2
+    b.c1  := c1
+    b.h1  := h1
+    b.l1  := l1
+    b.l1
+
+f_fast(FB b, simple string sym, simple string tf) =>
+    [d2, swH, swL] = request.security(sym, tf,
+         [close[2] > open[2] ? 1.0 : close[2] < open[2] ? -1.0 : na(close[2]) ? na : 0.0,
+          high[2] > high[3] and high[2] > high[1],
+          low[2]  < low[3]  and low[2]  < low[1]],
+         lookahead = barmerge.lookahead_off,
+         gaps      = barmerge.gaps_off)
+    b.d2  := d2
+    b.swH := swH
+    b.swL := swL
+    b.d2
 
 // The chart's own timeframe needs no request.security at all — its series are
 // already here. [1] is the last closed bar, matching the index map above.
 f_fill(AB b, float o, float h, float l, float c) =>
-    b.o1 := o[1]
-    b.c1 := c[1]
-    b.o2 := o[2]
-    b.c2 := c[2]
-    b.h1 := h[1]
-    b.h2 := h[2]
-    b.h3 := h[3]
-    b.l1 := l[1]
-    b.l2 := l[2]
-    b.l3 := l[3]
-    b.l3
+    b.d1  := c[1] > o[1] ? 1.0 : c[1] < o[1] ? -1.0 : na(c[1]) ? na : 0.0
+    b.d2  := c[2] > o[2] ? 1.0 : c[2] < o[2] ? -1.0 : na(c[2]) ? na : 0.0
+    b.swH := h[2] > h[3] and h[2] > h[1]
+    b.swL := l[2] < l[3] and l[2] < l[1]
+    b.hi2 := h[2]
+    b.lo2 := l[2]
+    b.c1  := c[1]
+    b.h1  := h[1]
+    b.l1  := l[1]
+    b.l1
 
 // One reusable object per asset per timeframe — allocated once, updated in
 // place, so nothing accumulates across bars.
@@ -364,53 +404,52 @@ var AB y1d = AB.new()
 var AB n1w = AB.new()
 var AB e1w = AB.new()
 var AB y1w = AB.new()
-var AB n15 = AB.new()
-var AB e15 = AB.new()
-var AB y15 = AB.new()
-var AB n5m = AB.new()
-var AB e5m = AB.new()
-var AB y5m = AB.new()
 var AB nCh = AB.new()
 var AB eCh = AB.new()
 var AB yCh = AB.new()
+var FB n15 = FB.new()
+var FB e15 = FB.new()
+var FB y15 = FB.new()
+var FB n5m = FB.new()
+var FB e5m = FB.new()
+var FB y5m = FB.new()
 
-tn1h = f_load(n1h, i_sym_nq, "60")
-te1h = f_load(e1h, i_sym_es, "60")
-ty1h = f_load(y1h, i_sym_ym, "60")
+f_load(n1h, i_sym_nq, "60")
+f_load(e1h, i_sym_es, "60")
+f_load(y1h, i_sym_ym, "60")
 
-tn4h = f_load(n4h, i_sym_nq, "240")
-te4h = f_load(e4h, i_sym_es, "240")
-ty4h = f_load(y4h, i_sym_ym, "240")
+f_load(n4h, i_sym_nq, "240")
+f_load(e4h, i_sym_es, "240")
+f_load(y4h, i_sym_ym, "240")
 
-tn1d = f_load(n1d, i_sym_nq, "D")
-te1d = f_load(e1d, i_sym_es, "D")
-ty1d = f_load(y1d, i_sym_ym, "D")
+f_load(n1d, i_sym_nq, "D")
+f_load(e1d, i_sym_es, "D")
+f_load(y1d, i_sym_ym, "D")
 
-tn1w = f_load(n1w, i_sym_nq, "W")
-te1w = f_load(e1w, i_sym_es, "W")
-ty1w = f_load(y1w, i_sym_ym, "W")
+f_load(n1w, i_sym_nq, "W")
+f_load(e1w, i_sym_es, "W")
+f_load(y1w, i_sym_ym, "W")
 
-// The two fast timeframes. These are read on the last bar only, never stepped
-// through history, so a chart above them is not a problem.
-tn15 = f_load(n15, i_sym_nq, "15")
-te15 = f_load(e15, i_sym_es, "15")
-ty15 = f_load(y15, i_sym_ym, "15")
+// The two fast timeframes. Read on the last bar only, never stepped through
+// history, so a chart above them is not a problem.
+f_fast(n15, i_sym_nq, "15")
+f_fast(e15, i_sym_es, "15")
+f_fast(y15, i_sym_ym, "15")
 
-tn5m = f_load(n5m, i_sym_nq, "5")
-te5m = f_load(e5m, i_sym_es, "5")
-ty5m = f_load(y5m, i_sym_ym, "5")
+f_fast(n5m, i_sym_nq, "5")
+f_fast(e5m, i_sym_es, "5")
+f_fast(y5m, i_sym_ym, "5")
 
 f_fill(nCh, a_nq_o, a_nq_h, a_nq_l, a_nq_c)
 f_fill(eCh, a_es_o, a_es_h, a_es_l, a_es_c)
 f_fill(yCh, a_ym_o, a_ym_h, a_ym_l, a_ym_c)
 
-// The three contracts share a session, so any enabled one is the clock.
-t1h = i_use_nq ? tn1h : i_use_es ? te1h : ty1h
-t4h = i_use_nq ? tn4h : i_use_es ? te4h : ty4h
-t1d = i_use_nq ? tn1d : i_use_es ? te1d : ty1d
-t1w = i_use_nq ? tn1w : i_use_es ? te1w : ty1w
-t15 = i_use_nq ? tn15 : i_use_es ? te15 : ty15
-t5m = i_use_nq ? tn5m : i_use_es ? te5m : ty5m
+// The clock that tells the engine a bar of that timeframe has closed.
+// time_close() is a built-in — it costs no request.security call.
+t1h = time_close("60")
+t4h = time_close("240")
+t1d = time_close("D")
+t1w = time_close("W")
 
 // ══════════════════════════════════════════════════════════════
 //  PER-TIMEFRAME STATE
@@ -484,35 +523,29 @@ f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y) =>
         // ── 2. the bar that just closed, [1]: a PCP whose swing verdict
         //       needs the NEXT close. This is the grey "maybe" state, and it
         //       is replaced wholesale on the next step, so it self-clears.
-        an  = f_dir(n.o1, n.c1)
-        ae  = f_dir(e.o1, e.c1)
-        ay  = f_dir(y.o1, y.c1)
-        qN  = i_use_nq and not na(n.c1) and (not i_ignore_doji or an != 0)
-        qE  = i_use_es and not na(e.c1) and (not i_ignore_doji or ae != 0)
-        qY  = i_use_ym and not na(y.c1) and (not i_ignore_doji or ay != 0)
-        qP  = qN and qE and an != ae
-        qYm = qY and ay > 0 and ((qE and ae < 0) or (qN and an < 0))
+        qN  = i_use_nq and not na(n.d1) and (not i_ignore_doji or n.d1 != 0)
+        qE  = i_use_es and not na(e.d1) and (not i_ignore_doji or e.d1 != 0)
+        qY  = i_use_ym and not na(y.d1) and (not i_ignore_doji or y.d1 != 0)
+        qP  = qN and qE and n.d1 != e.d1
+        qYm = qY and y.d1 > 0 and ((qE and e.d1 < 0) or (qN and n.d1 < 0))
         s.pndOn  := qP or qYm
-        s.pndWho := s.pndOn ? f_who(qP, qYm, qN, qE, an, ae) : ""
+        s.pndWho := s.pndOn ? f_who(qP, qYm, qN, qE, int(n.d1), int(e.d1)) : ""
 
         // ── 3. a new PSP on the swing bar, [2] ──
-        dn  = f_dir(n.o2, n.c2)
-        de  = f_dir(e.o2, e.c2)
-        dy  = f_dir(y.o2, y.c2)
-        okN = i_use_nq and not na(n.c2) and (not i_ignore_doji or dn != 0)
-        okE = i_use_es and not na(e.c2) and (not i_ignore_doji or de != 0)
-        okY = i_use_ym and not na(y.c2) and (not i_ignore_doji or dy != 0)
+        okN = i_use_nq and not na(n.d2) and (not i_ignore_doji or n.d2 != 0)
+        okE = i_use_es and not na(e.d2) and (not i_ignore_doji or e.d2 != 0)
+        okY = i_use_ym and not na(y.d2) and (not i_ignore_doji or y.d2 != 0)
 
-        divP = okN and okE and dn != de
-        divY = okY and dy > 0 and ((okE and de < 0) or (okN and dn < 0))
+        divP = okN and okE and n.d2 != e.d2
+        divY = okY and y.d2 > 0 and ((okE and e.d2 < 0) or (okN and n.d2 < 0))
 
         if divP or divY
-            hiN = i_use_nq and n.h2 > n.h3 and n.h2 > n.h1
-            hiE = i_use_es and e.h2 > e.h3 and e.h2 > e.h1
-            hiY = divY     and y.h2 > y.h3 and y.h2 > y.h1
-            loN = i_use_nq and n.l2 < n.l3 and n.l2 < n.l1
-            loE = i_use_es and e.l2 < e.l3 and e.l2 < e.l1
-            loY = divY     and y.l2 < y.l3 and y.l2 < y.l1
+            hiN = i_use_nq and n.swH
+            hiE = i_use_es and e.swH
+            hiY = divY     and y.swH
+            loN = i_use_nq and n.swL
+            loE = i_use_es and e.swL
+            loY = divY     and y.swL
 
             nHi = (hiN ? 1 : 0) + (hiE ? 1 : 0) + (hiY ? 1 : 0)
             nLo = (loN ? 1 : 0) + (loE ? 1 : 0) + (loY ? 1 : 0)
@@ -525,12 +558,12 @@ f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y) =>
 
                 s.live   := true
                 s.dir    := bear ? -1 : 1
-                s.who    := f_who(divP, divY, okN, okE, dn, de)
+                s.who    := f_who(divP, divY, okN, okE, int(n.d2), int(e.d2))
                 s.isNew  := true
                 s.isGone := false
-                v.nq := gN ? (bear ? n.h2 : n.l2) : na
-                v.es := gE ? (bear ? e.h2 : e.l2) : na
-                v.ym := gY ? (bear ? y.h2 : y.l2) : na
+                v.nq := gN ? (bear ? n.hi2 : n.lo2) : na
+                v.es := gE ? (bear ? e.hi2 : e.lo2) : na
+                v.ym := gY ? (bear ? y.hi2 : y.lo2) : na
     s.live
 
 var MtfSt st1h = MtfSt.new()
@@ -590,27 +623,24 @@ rCh = tf_allowed ? f_rec(stCh, chName) : ""
 //  bars, so it can be read straight off the last bar, and that is what lets
 //  this work on a timeframe below the chart's: nothing is accumulated across
 //  history, so nothing can be corrupted by sampling it once per chart bar.
-f_flash(AB n, AB e, AB y) =>
-    dn  = f_dir(n.o2, n.c2)
-    de  = f_dir(e.o2, e.c2)
-    dy  = f_dir(y.o2, y.c2)
-    okN = i_use_nq and not na(n.c2) and (not i_ignore_doji or dn != 0)
-    okE = i_use_es and not na(e.c2) and (not i_ignore_doji or de != 0)
-    okY = i_use_ym and not na(y.c2) and (not i_ignore_doji or dy != 0)
+f_flash(FB n, FB e, FB y) =>
+    okN = i_use_nq and not na(n.d2) and (not i_ignore_doji or n.d2 != 0)
+    okE = i_use_es and not na(e.d2) and (not i_ignore_doji or e.d2 != 0)
+    okY = i_use_ym and not na(y.d2) and (not i_ignore_doji or y.d2 != 0)
 
-    divP = okN and okE and dn != de
-    divY = okY and dy > 0 and ((okE and de < 0) or (okN and dn < 0))
+    divP = okN and okE and n.d2 != e.d2
+    divY = okY and y.d2 > 0 and ((okE and e.d2 < 0) or (okN and n.d2 < 0))
 
     on  = false
     dir = 0
     who = ""
     if divP or divY
-        hiN = i_use_nq and n.h2 > n.h3 and n.h2 > n.h1
-        hiE = i_use_es and e.h2 > e.h3 and e.h2 > e.h1
-        hiY = divY     and y.h2 > y.h3 and y.h2 > y.h1
-        loN = i_use_nq and n.l2 < n.l3 and n.l2 < n.l1
-        loE = i_use_es and e.l2 < e.l3 and e.l2 < e.l1
-        loY = divY     and y.l2 < y.l3 and y.l2 < y.l1
+        hiN = i_use_nq and n.swH
+        hiE = i_use_es and e.swH
+        hiY = divY     and y.swH
+        loN = i_use_nq and n.swL
+        loE = i_use_es and e.swL
+        loY = divY     and y.swL
 
         nHi = (hiN ? 1 : 0) + (hiE ? 1 : 0) + (hiY ? 1 : 0)
         nLo = (loN ? 1 : 0) + (loE ? 1 : 0) + (loY ? 1 : 0)
@@ -618,16 +648,18 @@ f_flash(AB n, AB e, AB y) =>
         if nHi > 0 or nLo > 0
             on  := true
             dir := nHi >= nLo ? -1 : 1
-            who := f_who(divP, divY, okN, okE, dn, de)
+            who := f_who(divP, divY, okN, okE, int(n.d2), int(e.d2))
     [on, dir, who]
 
 [on15, dir15, who15] = f_flash(n15, e15, y15)
 [on5m, dir5m, who5m] = f_flash(n5m, e5m, y5m)
 
-// t15 / t5m are the close of the bar that confirmed the swing, so the notice
-// stands exactly until the next close on that timeframe.
-live15 = i_fast_on and on15 and chartSec != 900 and not na(t15) and timenow < t15 + 900000
-live5m = i_fast_on and on5m and chartSec != 300 and not na(t5m) and timenow < t5m + 300000
+// No timer is needed, and none is possible to get wrong: the request always
+// reports the state as of the last CLOSED bar of that timeframe, so the
+// notice is replaced wholesale at the next close — which is exactly
+// "stands until the next close".
+live15 = i_fast_on and on15 and chartSec != 900
+live5m = i_fast_on and on5m and chartSec != 300
 
 r15 = live15 ? "15m " + (dir15 < 0 ? "▼" : "▲") + " " + who15 : ""
 r5m = live5m ? "5m "  + (dir5m < 0 ? "▼" : "▲") + " " + who5m : ""
