@@ -1,6 +1,20 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.7
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.8
 // Pine Script V5
+//
+// v5.8 — the daily divergence really was being missed, and this is why:
+//  CME futures default to using the SETTLEMENT price as the daily close.
+//  A chart can turn that off per symbol, and this one is turned off — but
+//  request.security() knows nothing about a chart's per-symbol settings, so
+//  it kept reading the settlement close while the bars on screen showed the
+//  regular one. On a day that settles the other side of its open, the script
+//  therefore read "up" for a candle the eye reads as down, no divergence
+//  existed as far as it was concerned, and nothing was drawn. Swapping ES1!
+//  for MES1! changed nothing because the default is the same on both.
+//  Every symbol now goes through ticker.modify(settlement_as_close = ...)
+//  before the request, defaulting to OFF so the script reads what the chart
+//  draws. The debug rows print the open and close actually read, so the two
+//  can be compared against the chart directly.
 //
 // v5.7:
 //  - The chart timeframe's row in the panel reports nothing while the same
@@ -126,6 +140,10 @@ i_use_es   = input.bool(true,  title="כלול ES", group=grp_assets)
 i_use_ym   = input.bool(true,  title="כלול YM (חוזקה בלבד)",
      tooltip="YM יוצר דיברגנס רק כשהוא נסגר בעלייה בזמן ש-ES ו/או NQ נסגרים בירידה.",
      group=grp_assets)
+i_settle   = input.string("כבוי — כמו הגרף", title="Settlement כסגירה יומית",
+     options=["כבוי — כמו הגרף", "דלוק", "ברירת המחדל של הסימבול"],
+     tooltip="בחוזי CME ברירת המחדל היא שהסגירה היומית היא מחיר הסילוק, לא הסגירה הרגילה.\nהגדרת הגרף שלך לא עוברת ל-request.security, ולכן בלי זה הסקריפט קורא נר אחר ממה שאתה רואה.\nהשאר על 'כבוי' אם ההגדרה בגרף לא מסומנת.",
+     group=grp_assets)
 
 grp_tf     = "═══  מסגרת הגרף  ═══"
 i_tf_1m    = input.bool(true,  title="1m (ES ו-NQ בלבד)", group=grp_tf)
@@ -215,6 +233,12 @@ f_dir(float o, float c) =>
 //  gaps_off      → no na bars when the external symbol has no tick
 // ══════════════════════════════════════════════════════════════
 
+settleMode = i_settle == "דלוק" ? settlement_as_close.on : i_settle == "ברירת המחדל של הסימבול" ? settlement_as_close.inherit : settlement_as_close.off
+
+tk_nq = ticker.modify(i_sym_nq, settlement_as_close = settleMode)
+tk_es = ticker.modify(i_sym_es, settlement_as_close = settleMode)
+tk_ym = ticker.modify(i_sym_ym, settlement_as_close = settleMode)
+
 f_sec(simple string sym) =>
     [o, h, l, c] = request.security(sym, timeframe.period,
          [open, high, low, close],
@@ -222,9 +246,9 @@ f_sec(simple string sym) =>
          gaps      = barmerge.gaps_off)
     [o, h, l, c]
 
-[a_nq_o, a_nq_h, a_nq_l, a_nq_c] = f_sec(i_sym_nq)
-[a_es_o, a_es_h, a_es_l, a_es_c] = f_sec(i_sym_es)
-[a_ym_o, a_ym_h, a_ym_l, a_ym_c] = f_sec(i_sym_ym)
+[a_nq_o, a_nq_h, a_nq_l, a_nq_c] = f_sec(tk_nq)
+[a_es_o, a_es_h, a_es_l, a_es_c] = f_sec(tk_es)
+[a_ym_o, a_ym_h, a_ym_l, a_ym_c] = f_sec(tk_ym)
 
 nq_dir = f_dir(a_nq_o, a_nq_c)
 es_dir = f_dir(a_es_o, a_es_c)
@@ -451,31 +475,31 @@ var FB n5m = FB.new()
 var FB e5m = FB.new()
 var FB y5m = FB.new()
 
-tn1h = f_load(n1h, i_sym_nq, "60")
-te1h = f_load(e1h, i_sym_es, "60")
-ty1h = f_load(y1h, i_sym_ym, "60")
+tn1h = f_load(n1h, tk_nq, "60")
+te1h = f_load(e1h, tk_es, "60")
+ty1h = f_load(y1h, tk_ym, "60")
 
-tn4h = f_load(n4h, i_sym_nq, "240")
-te4h = f_load(e4h, i_sym_es, "240")
-ty4h = f_load(y4h, i_sym_ym, "240")
+tn4h = f_load(n4h, tk_nq, "240")
+te4h = f_load(e4h, tk_es, "240")
+ty4h = f_load(y4h, tk_ym, "240")
 
-tn1d = f_load(n1d, i_sym_nq, "D")
-te1d = f_load(e1d, i_sym_es, "D")
-ty1d = f_load(y1d, i_sym_ym, "D")
+tn1d = f_load(n1d, tk_nq, "D")
+te1d = f_load(e1d, tk_es, "D")
+ty1d = f_load(y1d, tk_ym, "D")
 
-tn1w = f_load(n1w, i_sym_nq, "W")
-te1w = f_load(e1w, i_sym_es, "W")
-ty1w = f_load(y1w, i_sym_ym, "W")
+tn1w = f_load(n1w, tk_nq, "W")
+te1w = f_load(e1w, tk_es, "W")
+ty1w = f_load(y1w, tk_ym, "W")
 
 // The two fast timeframes. Read on the last bar only, never stepped through
 // history, so a chart above them is not a problem.
-f_fast(n15, i_sym_nq, "15")
-f_fast(e15, i_sym_es, "15")
-f_fast(y15, i_sym_ym, "15")
+f_fast(n15, tk_nq, "15")
+f_fast(e15, tk_es, "15")
+f_fast(y15, tk_ym, "15")
 
-f_fast(n5m, i_sym_nq, "5")
-f_fast(e5m, i_sym_es, "5")
-f_fast(y5m, i_sym_ym, "5")
+f_fast(n5m, tk_nq, "5")
+f_fast(e5m, tk_es, "5")
+f_fast(y5m, tk_ym, "5")
 
 f_fill(nCh, a_nq_o, a_nq_h, a_nq_l, a_nq_c)
 f_fill(eCh, a_es_o, a_es_h, a_es_l, a_es_c)
@@ -783,7 +807,7 @@ pnlPos = i_pnl_v == "למעלה" ? pnlTop : i_pnl_v == "באמצע" ? pnlMid : p
 pnlUp  = i_pnl_v == "למעלה"
 pnlR0  = pnlUp ? i_pnl_pad : 0
 
-dbgRows = i_debug ? 4 : 0
+dbgRows = i_debug ? 4 : 0   // NQ, ES, YM, d1
 
 var table pnlTbl = table.new(pnlPos, 2, 6 + dbgRows + i_pnl_pad, border_width = 0)
 
@@ -797,6 +821,11 @@ f_row3(float n, float e, float y) =>
 
 f_flag(bool b) =>
     b ? "1" : "0"
+
+// The open and close actually read for the last closed bar, to be compared
+// against the same candle on the chart.
+f_oc(float o, float c) =>
+    "o" + str.tostring(o, "#.##") + " c" + str.tostring(c, "#.##")
 
 f_stat(MtfSt s, bool shown) =>
     not shown ? "▶" : s.live ? f_arrow(s) + " " + s.who : s.pndOn ? "◦ " + s.pndWho : "—"
@@ -824,14 +853,14 @@ if barstate.islast and i_pnl_on
     table.cell(pnlTbl, 1, pnlR0 + 5, f_stat(stCh, tf_allowed), text_color = f_statCol(stCh, tf_allowed), text_size = size.small, bgcolor = c_clear)
 
     if i_debug
-        table.cell(pnlTbl, 0, pnlR0 + 6, "d1", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
-        table.cell(pnlTbl, 1, pnlR0 + 6, f_row3(nCh.d1, eCh.d1, yCh.d1), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
-        table.cell(pnlTbl, 0, pnlR0 + 7, "d2", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
-        table.cell(pnlTbl, 1, pnlR0 + 7, f_row3(nCh.d2, eCh.d2, yCh.d2), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
-        table.cell(pnlTbl, 0, pnlR0 + 8, "sw", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
-        table.cell(pnlTbl, 1, pnlR0 + 8, "H" + f_flag(nCh.swH) + f_flag(eCh.swH) + f_flag(yCh.swH) + " L" + f_flag(nCh.swL) + f_flag(eCh.swL) + f_flag(yCh.swL), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
-        table.cell(pnlTbl, 0, pnlR0 + 9, "st", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
-        table.cell(pnlTbl, 1, pnlR0 + 9, "pnd" + f_flag(stCh.pndOn) + " lv" + f_flag(stCh.live) + " stp" + f_flag(stCh.lastT != 0), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 0, pnlR0 + 6, "NQ", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 1, pnlR0 + 6, f_oc(a_nq_o[1], a_nq_c[1]), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 0, pnlR0 + 7, "ES", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 1, pnlR0 + 7, f_oc(a_es_o[1], a_es_c[1]), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 0, pnlR0 + 8, "YM", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 1, pnlR0 + 8, f_oc(a_ym_o[1], a_ym_c[1]), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 0, pnlR0 + 9, "d1", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 1, pnlR0 + 9, f_row3(nCh.d1, eCh.d1, yCh.d1) + "  pnd" + f_flag(stCh.pndOn), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
 //  ALERTS
