@@ -1,6 +1,20 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.3
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.4
 // Pine Script V5
+//
+// v5.4:
+//  - The CHART'S OWN timeframe is back in the line. Leaving it out was a
+//    mistake: an undecided PCP shows on the bars only as a tiny grey dot and
+//    a PCP that never became a swing shows nothing at all, so on a daily
+//    chart the daily state was invisible everywhere. It costs no extra
+//    request.security — it is built from the chart series already fetched,
+//    so there is no sampling problem either.
+//  - Fast heads-up for 5m and 15m, in the SAME line rather than a second row.
+//    It does NOT go through the carried-state engine; it is computed directly
+//    on the last bar, which is exactly what lets it read a timeframe below the
+//    chart's without the once-per-chart-bar sampling ruining it. It stands
+//    until the next close on its own timeframe, and skips the chart's own
+//    timeframe, which is already drawn on the bars.
 //
 // v5.3:
 //  - The line lists EVERY standing break from 1H / 4H / 1D / 1W side by
@@ -100,6 +114,9 @@ i_mtf_h    = input.string("שמאל", title="צד השורה",
      options=["שמאל", "מרכז", "ימין"], group=grp_mtf)
 i_mtf_pad  = input.int(0, title="הרחקת השורה מהקצה (שורות)", minval=0, maxval=12,
      tooltip="מוסיף שורות ריקות בין השורה לקצה הגרף, כדי להרים אותה מעל שורה של אינדיקטור אחר שיושב באותה פינה.",
+     group=grp_mtf)
+i_fast_on  = input.bool(true, title="הצג התרעה מהירה 5m / 15m",
+     tooltip="תא נוסף באותה שורה כשנוצר PSP של 5 או 15 דקות. נעלם בסגירת הנר הבא של אותה מסגרת.\nמדלג על מסגרת הגרף עצמה, שכבר מצוירת על הנרות.",
      group=grp_mtf)
 i_inv_wick = input.bool(false, title="בטל שבירה לפי פתיל",
      tooltip="כבוי (ברירת מחדל): שבירה מתה כשנר של אותה מסגרת נסגר מעבר לרמת הסווינג.\nדלוק: מספיק פתיל מעבר לרמה.",
@@ -318,6 +335,21 @@ f_load(AB b, simple string sym, simple string tf) =>
     b.l3 := l3
     tc
 
+// The chart's own timeframe needs no request.security at all — its series are
+// already here. [1] is the last closed bar, matching the index map above.
+f_fill(AB b, float o, float h, float l, float c) =>
+    b.o1 := o[1]
+    b.c1 := c[1]
+    b.o2 := o[2]
+    b.c2 := c[2]
+    b.h1 := h[1]
+    b.h2 := h[2]
+    b.h3 := h[3]
+    b.l1 := l[1]
+    b.l2 := l[2]
+    b.l3 := l[3]
+    b.l3
+
 // One reusable object per asset per timeframe — allocated once, updated in
 // place, so nothing accumulates across bars.
 var AB n1h = AB.new()
@@ -332,6 +364,15 @@ var AB y1d = AB.new()
 var AB n1w = AB.new()
 var AB e1w = AB.new()
 var AB y1w = AB.new()
+var AB n15 = AB.new()
+var AB e15 = AB.new()
+var AB y15 = AB.new()
+var AB n5m = AB.new()
+var AB e5m = AB.new()
+var AB y5m = AB.new()
+var AB nCh = AB.new()
+var AB eCh = AB.new()
+var AB yCh = AB.new()
 
 tn1h = f_load(n1h, i_sym_nq, "60")
 te1h = f_load(e1h, i_sym_es, "60")
@@ -349,11 +390,27 @@ tn1w = f_load(n1w, i_sym_nq, "W")
 te1w = f_load(e1w, i_sym_es, "W")
 ty1w = f_load(y1w, i_sym_ym, "W")
 
+// The two fast timeframes. These are read on the last bar only, never stepped
+// through history, so a chart above them is not a problem.
+tn15 = f_load(n15, i_sym_nq, "15")
+te15 = f_load(e15, i_sym_es, "15")
+ty15 = f_load(y15, i_sym_ym, "15")
+
+tn5m = f_load(n5m, i_sym_nq, "5")
+te5m = f_load(e5m, i_sym_es, "5")
+ty5m = f_load(y5m, i_sym_ym, "5")
+
+f_fill(nCh, a_nq_o, a_nq_h, a_nq_l, a_nq_c)
+f_fill(eCh, a_es_o, a_es_h, a_es_l, a_es_c)
+f_fill(yCh, a_ym_o, a_ym_h, a_ym_l, a_ym_c)
+
 // The three contracts share a session, so any enabled one is the clock.
 t1h = i_use_nq ? tn1h : i_use_es ? te1h : ty1h
 t4h = i_use_nq ? tn4h : i_use_es ? te4h : ty4h
 t1d = i_use_nq ? tn1d : i_use_es ? te1d : ty1d
 t1w = i_use_nq ? tn1w : i_use_es ? te1w : ty1w
+t15 = i_use_nq ? tn15 : i_use_es ? te15 : ty15
+t5m = i_use_nq ? tn5m : i_use_es ? te5m : ty5m
 
 // ══════════════════════════════════════════════════════════════
 //  PER-TIMEFRAME STATE
@@ -480,7 +537,10 @@ var MtfSt st1h = MtfSt.new()
 var MtfSt st4h = MtfSt.new()
 var MtfSt st1d = MtfSt.new()
 var MtfSt st1w = MtfSt.new()
+var MtfSt stCh = MtfSt.new()
+var Lv    vCh  = Lv.new()
 
+f_step(stCh, vCh, time, nCh, eCh, yCh)
 f_step(st1h, v1h, t1h, n1h, e1h, y1h)
 f_step(st4h, v4h, t4h, n4h, e4h, y4h)
 f_step(st1d, v1d, t1d, n1d, e1d, y1d)
@@ -489,13 +549,17 @@ f_step(st1w, v1w, t1w, n1w, e1w, y1w)
 // ══════════════════════════════════════════════════════════════
 //  THE LINE
 //
-//  Every timeframe gets its own cell and renders itself in one of three
-//  states: a standing break in its direction's colour, otherwise the grey
-//  bar that closed with a divergence and is still waiting on its swing
-//  verdict, otherwise nothing. Cells pack left, highest timeframe first.
+//  Order:  1W · 1D · 4H · 1H · [your chart] · 15m · 5m
 //
-//  Only timeframes ABOVE the chart's take part. The chart's own is already
-//  drawn on the bars, and anything below it cannot be tracked accurately.
+//  Each cell renders one of three states: a standing break in its
+//  direction's colour, otherwise the grey bar that closed with a divergence
+//  and is still waiting on its swing verdict, otherwise nothing. Cells pack
+//  left, so gaps close up.
+//
+//  A timeframe between the chart's and the fast pair is left out: stepping
+//  it through history would sample it once per chart bar and the carried
+//  "level taken" state would come out wrong. The chart's own timeframe has
+//  no such problem — it is built from the chart's own series.
 // ══════════════════════════════════════════════════════════════
 
 chartSec = timeframe.in_seconds(timeframe.period)
@@ -503,6 +567,8 @@ sh1h = timeframe.in_seconds("60")  > chartSec
 sh4h = timeframe.in_seconds("240") > chartSec
 sh1d = timeframe.in_seconds("D")   > chartSec
 sh1w = timeframe.in_seconds("W")   > chartSec
+
+chName = is_1m ? "1m" : is_5m ? "5m" : is_15m ? "15m" : is_1h ? "1H" : is_4h ? "4H" : is_1d ? "1D" : is_1w ? "1W" : tf_str
 
 f_arrow(MtfSt s) =>
     s.dir < 0 ? "▼" : "▲"
@@ -517,6 +583,57 @@ r1w = sh1w ? f_rec(st1w, "1W") : ""
 r1d = sh1d ? f_rec(st1d, "1D") : ""
 r4h = sh4h ? f_rec(st4h, "4H") : ""
 r1h = sh1h ? f_rec(st1h, "1H") : ""
+rCh = tf_allowed ? f_rec(stCh, chName) : ""
+
+// ── the fast heads-up ──
+//  Deliberately NOT the carried-state engine. A PSP is a function of three
+//  bars, so it can be read straight off the last bar, and that is what lets
+//  this work on a timeframe below the chart's: nothing is accumulated across
+//  history, so nothing can be corrupted by sampling it once per chart bar.
+f_flash(AB n, AB e, AB y) =>
+    dn  = f_dir(n.o2, n.c2)
+    de  = f_dir(e.o2, e.c2)
+    dy  = f_dir(y.o2, y.c2)
+    okN = i_use_nq and not na(n.c2) and (not i_ignore_doji or dn != 0)
+    okE = i_use_es and not na(e.c2) and (not i_ignore_doji or de != 0)
+    okY = i_use_ym and not na(y.c2) and (not i_ignore_doji or dy != 0)
+
+    divP = okN and okE and dn != de
+    divY = okY and dy > 0 and ((okE and de < 0) or (okN and dn < 0))
+
+    on  = false
+    dir = 0
+    who = ""
+    if divP or divY
+        hiN = i_use_nq and n.h2 > n.h3 and n.h2 > n.h1
+        hiE = i_use_es and e.h2 > e.h3 and e.h2 > e.h1
+        hiY = divY     and y.h2 > y.h3 and y.h2 > y.h1
+        loN = i_use_nq and n.l2 < n.l3 and n.l2 < n.l1
+        loE = i_use_es and e.l2 < e.l3 and e.l2 < e.l1
+        loY = divY     and y.l2 < y.l3 and y.l2 < y.l1
+
+        nHi = (hiN ? 1 : 0) + (hiE ? 1 : 0) + (hiY ? 1 : 0)
+        nLo = (loN ? 1 : 0) + (loE ? 1 : 0) + (loY ? 1 : 0)
+
+        if nHi > 0 or nLo > 0
+            on  := true
+            dir := nHi >= nLo ? -1 : 1
+            who := f_who(divP, divY, okN, okE, dn, de)
+    [on, dir, who]
+
+[on15, dir15, who15] = f_flash(n15, e15, y15)
+[on5m, dir5m, who5m] = f_flash(n5m, e5m, y5m)
+
+// t15 / t5m are the close of the bar that confirmed the swing, so the notice
+// stands exactly until the next close on that timeframe.
+live15 = i_fast_on and on15 and chartSec != 900 and not na(t15) and timenow < t15 + 900000
+live5m = i_fast_on and on5m and chartSec != 300 and not na(t5m) and timenow < t5m + 300000
+
+r15 = live15 ? "15m " + (dir15 < 0 ? "▼" : "▲") + " " + who15 : ""
+r5m = live5m ? "5m "  + (dir5m < 0 ? "▼" : "▲") + " " + who5m : ""
+
+c15 = dir15 < 0 ? i_col_bear : i_col_bull
+c5m = dir5m < 0 ? i_col_bear : i_col_bull
 
 // Kept as one-line statements on purpose: Pine treats a continuation line
 // indented by any multiple of four spaces as the start of a block, so a
@@ -534,7 +651,7 @@ mtfRow = mtfUp ? i_mtf_pad : 0
 
 // One cell per timeframe, not one joined string: a cell carries a single
 // text colour, and each timeframe has to be painted in its own state's.
-var table mtfTbl = table.new(mtfPos, 5, 1 + i_mtf_pad, border_width = 0)
+var table mtfTbl = table.new(mtfPos, 8, 1 + i_mtf_pad, border_width = 0)
 
 c_clear = color.new(color.black, 100)
 
@@ -544,7 +661,7 @@ if barstate.islast and i_mtf_on
             table.cell(mtfTbl, 0, mtfUp ? k : 1 + k, " ",
                  text_size = size.small, bgcolor = c_clear)
 
-    anything = r1w != "" or r1d != "" or r4h != "" or r1h != ""
+    anything = r1w != "" or r1d != "" or r4h != "" or r1h != "" or rCh != "" or r15 != "" or r5m != ""
     table.cell(mtfTbl, 0, mtfRow, anything ? "ADI" : "", text_color = i_col_neut,
          text_size = size.small, bgcolor = c_clear)
 
@@ -565,8 +682,20 @@ if barstate.islast and i_mtf_on
         table.cell(mtfTbl, col, mtfRow, r1h, text_color = f_col(st1h),
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
-    if col <= 4
-        for k = col to 4
+    if rCh != ""
+        table.cell(mtfTbl, col, mtfRow, rCh, text_color = f_col(stCh),
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if r15 != ""
+        table.cell(mtfTbl, col, mtfRow, r15, text_color = c15,
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if r5m != ""
+        table.cell(mtfTbl, col, mtfRow, r5m, text_color = c5m,
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if col <= 7
+        for k = col to 7
             table.cell(mtfTbl, k, mtfRow, "", bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
@@ -584,7 +713,7 @@ pnlPos = i_pnl_v == "למעלה" ? pnlTop : i_pnl_v == "באמצע" ? pnlMid : p
 pnlUp  = i_pnl_v == "למעלה"
 pnlR0  = pnlUp ? i_pnl_pad : 0
 
-var table pnlTbl = table.new(pnlPos, 2, 5 + i_pnl_pad, border_width = 0)
+var table pnlTbl = table.new(pnlPos, 2, 6 + i_pnl_pad, border_width = 0)
 
 f_stat(MtfSt s, bool shown) =>
     not shown ? "▶" : s.live ? f_arrow(s) + " " + s.who : s.pndOn ? "◦ " + s.pndWho : "—"
@@ -595,7 +724,7 @@ f_statCol(MtfSt s, bool shown) =>
 if barstate.islast and i_pnl_on
     if i_pnl_pad > 0
         for k = 0 to i_pnl_pad - 1
-            table.cell(pnlTbl, 0, pnlUp ? k : 5 + k, " ",
+            table.cell(pnlTbl, 0, pnlUp ? k : 6 + k, " ",
                  text_size = size.small, bgcolor = c_clear)
 
     table.cell(pnlTbl, 0, pnlR0, "ADI", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
@@ -608,6 +737,8 @@ if barstate.islast and i_pnl_on
     table.cell(pnlTbl, 1, pnlR0 + 3, f_stat(st4h, sh4h), text_color = f_statCol(st4h, sh4h), text_size = size.small, bgcolor = c_clear)
     table.cell(pnlTbl, 0, pnlR0 + 4, "1H", text_color = f_statCol(st1h, sh1h), text_size = size.small, bgcolor = c_clear)
     table.cell(pnlTbl, 1, pnlR0 + 4, f_stat(st1h, sh1h), text_color = f_statCol(st1h, sh1h), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 0, pnlR0 + 5, chName, text_color = f_statCol(stCh, tf_allowed), text_size = size.small, bgcolor = c_clear)
+    table.cell(pnlTbl, 1, pnlR0 + 5, f_stat(stCh, tf_allowed), text_color = f_statCol(stCh, tf_allowed), text_size = size.small, bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
 //  ALERTS
@@ -623,8 +754,8 @@ if barstate.islast and i_pnl_on
 f_alertTx(MtfSt s, string nm) =>
     nm + " " + f_arrow(s) + " " + s.who
 
-newTx  = sh1w and st1w.isNew ? f_alertTx(st1w, "1W") : sh1d and st1d.isNew ? f_alertTx(st1d, "1D") : sh4h and st4h.isNew ? f_alertTx(st4h, "4H") : sh1h and st1h.isNew ? f_alertTx(st1h, "1H") : ""
-goneTx = sh1w and st1w.isGone ? f_alertTx(st1w, "1W") : sh1d and st1d.isGone ? f_alertTx(st1d, "1D") : sh4h and st4h.isGone ? f_alertTx(st4h, "4H") : sh1h and st1h.isGone ? f_alertTx(st1h, "1H") : ""
+newTx  = sh1w and st1w.isNew ? f_alertTx(st1w, "1W") : sh1d and st1d.isNew ? f_alertTx(st1d, "1D") : sh4h and st4h.isNew ? f_alertTx(st4h, "4H") : sh1h and st1h.isNew ? f_alertTx(st1h, "1H") : tf_allowed and stCh.isNew ? f_alertTx(stCh, chName) : ""
+goneTx = sh1w and st1w.isGone ? f_alertTx(st1w, "1W") : sh1d and st1d.isGone ? f_alertTx(st1d, "1D") : sh4h and st4h.isGone ? f_alertTx(st4h, "4H") : sh1h and st1h.isGone ? f_alertTx(st1h, "1H") : tf_allowed and stCh.isGone ? f_alertTx(stCh, chName) : ""
 
 if i_mtf_alert and i_mtf_on and goneTx != ""
     alert("ADI: נשבר — " + goneTx, alert.freq_once_per_bar)
