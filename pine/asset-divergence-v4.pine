@@ -1,6 +1,21 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.8
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.9
 // Pine Script V5
+//
+// v5.9 — the 5m/15m heads-up becomes an actual notice:
+//  It was a cell in the breaks line, in parentheses, in the same small type as
+//  everything beside it — so it read as one more entry in a list rather than
+//  as something that just happened, and in practice it was never seen. It now
+//  has a box of its own, with its own corner, its own text size and a tinted
+//  background, and it is out of the breaks line entirely.
+//    - PCP too, not only PSP. A PCP needs no swing, so it is known one bar
+//      earlier than the PSP on the same candle; it shows grey with ◦ against
+//      the coloured ⚡ of a PSP. It is much the more common of the two, hence
+//      its own switch.
+//    - A real alert() fires on a fast PSP, so TradingView can push it.
+//  Still 138 series: f_fast gained the last closed bar's direction and paid
+//  for it by packing its two swing booleans into one number (+2 high, +1 low,
+//  so 3 is both).
 //
 // v5.8 — the daily divergence really was being missed, and this is why:
 //  CME futures default to using the SETTLEMENT price as the daily close.
@@ -178,9 +193,6 @@ i_mtf_h    = input.string("שמאל", title="צד השורה",
 i_mtf_pad  = input.int(0, title="הרחקת השורה מהקצה (שורות)", minval=0, maxval=12,
      tooltip="מוסיף שורות ריקות בין השורה לקצה הגרף, כדי להרים אותה מעל שורה של אינדיקטור אחר שיושב באותה פינה.",
      group=grp_mtf)
-i_fast_on  = input.bool(true, title="הצג התרעה מהירה 5m / 15m",
-     tooltip="תא נוסף באותה שורה כשנוצר PSP של 5 או 15 דקות. נעלם בסגירת הנר הבא של אותה מסגרת.\nמדלג על מסגרת הגרף עצמה, שכבר מצוירת על הנרות.",
-     group=grp_mtf)
 i_inv_wick = input.bool(false, title="בטל שבירה לפי פתיל",
      tooltip="כבוי (ברירת מחדל): שבירה מתה כשנר של אותה מסגרת נסגר מעבר לרמת הסווינג.\nדלוק: מספיק פתיל מעבר לרמה.",
      group=grp_mtf)
@@ -197,6 +209,25 @@ i_mtf_alert = input.bool(true, title="התראה על שבירה חדשה ועל
 i_debug    = input.bool(false, title="הצג ערכי בדיקה (בפאנל)",
      tooltip="מוסיף לפאנל ארבע שורות עם הערכים הגולמיים של מסגרת הגרף:\nd1 = כיוון הנר האחרון שנסגר · d2 = הנר שלפניו · sw = סווינגים · st = מצב המנוע.\nצריך להדליק גם את הפאנל.",
      group=grp_mtf)
+
+grp_fast   = "═══  התרעה מהירה 5m / 15m  ═══"
+i_fast_on  = input.bool(true, title="הצג התרעת 5m / 15m",
+     tooltip="תיבה נפרדת משלה, לא שורת השבירות. מופיעה בכל גרף חוץ ממסגרת ההתרעה עצמה — 5 דקות לא תוצג על גרף 5 דקות, 15 דקות לא על גרף 15 דקות.\nנעלמת מעצמה בסגירת הנר הבא של אותה מסגרת.",
+     group=grp_fast)
+i_fast_pcp = input.bool(true, title="כלול גם PCP (דיברגנס בלי סווינג)",
+     tooltip="PSP מוצג בצבע עם ⚡. PCP מוצג באפור עם ◦, ומופיע נר אחד מוקדם יותר כי הוא לא מחכה לסווינג.\nPCP הרבה יותר שכיח — כבה את זה אם זה מרעיש.",
+     group=grp_fast)
+i_fast_v   = input.string("למעלה", title="גובה ההתרעה",
+     options=["למעלה", "באמצע", "למטה"], group=grp_fast)
+i_fast_h   = input.string("מרכז", title="צד ההתרעה",
+     options=["שמאל", "מרכז", "ימין"], group=grp_fast)
+i_fast_pad = input.int(0, title="הרחקת ההתרעה מהקצה (שורות)", minval=0, maxval=12, group=grp_fast)
+i_fast_sz  = input.string("גדול", title="גודל הטקסט",
+     options=["קטן", "רגיל", "גדול", "ענק"], group=grp_fast)
+i_fast_bg  = input.bool(true, title="רקע מודגש", group=grp_fast)
+i_fast_alert = input.bool(true, title="התראה (alert) על PSP מהיר",
+     tooltip="שולח alert של TradingView כשנוצר PSP מהיר, כדי שאפשר יהיה לקבל התראה לנייד.\nלכל היותר אחת לנר של הגרף — על גרף שעתי זו אחת לשעה.",
+     group=grp_fast)
 
 // ══════════════════════════════════════════════════════════════
 //  TIMEFRAME GATE  (chart drawing only — the corner line is independent)
@@ -392,12 +423,15 @@ type AB
     float tkH = na
     float tkL = na
 
-// The fast heads-up keeps no state and tests no level, so it needs the swing
-// bar and nothing else.
+// The fast heads-up keeps no state and tests no level. It needs the last
+// closed bar's direction (that alone decides a PCP), the swing bar's direction
+// and the swing itself — and the two swing booleans are packed into ONE number
+// (+2 for a swing high, +1 for a swing low, so 3 means both) because every
+// element of every request is a full series held over the chart's history.
 type FB
-    float d2  = na
-    bool  swH = false
-    bool  swL = false
+    float d1 = na
+    float d2 = na
+    float sw = na
 
 //  The clock rides INSIDE the tuple on purpose. Timing it from the built-in
 //  time_close(tf) instead desynchronises it from the data it is timing: the
@@ -427,15 +461,15 @@ f_load(AB b, simple string sym, simple string tf) =>
     tc
 
 f_fast(FB b, simple string sym, simple string tf) =>
-    [d2, swH, swL] = request.security(sym, tf,
-         [close[2] > open[2] ? 1.0 : close[2] < open[2] ? -1.0 : na(close[2]) ? na : 0.0,
-          high[2] > high[3] and high[2] > high[1],
-          low[2]  < low[3]  and low[2]  < low[1]],
+    [d1, d2, sw] = request.security(sym, tf,
+         [close[1] > open[1] ? 1.0 : close[1] < open[1] ? -1.0 : na(close[1]) ? na : 0.0,
+          close[2] > open[2] ? 1.0 : close[2] < open[2] ? -1.0 : na(close[2]) ? na : 0.0,
+          (high[2] > high[3] and high[2] > high[1] ? 2.0 : 0.0) + (low[2] < low[3] and low[2] < low[1] ? 1.0 : 0.0)],
          lookahead = barmerge.lookahead_off,
          gaps      = barmerge.gaps_off)
-    b.d2  := d2
-    b.swH := swH
-    b.swL := swL
+    b.d1 := d1
+    b.d2 := d2
+    b.sw := sw
     b.d2
 
 // The chart's own timeframe needs no request.security at all — its series are
@@ -685,7 +719,14 @@ rCh = tf_allowed ? f_rec(stCh, chName) : ""
 //  bars, so it can be read straight off the last bar, and that is what lets
 //  this work on a timeframe below the chart's: nothing is accumulated across
 //  history, so nothing can be corrupted by sampling it once per chart bar.
+f_swH(float sw) =>
+    not na(sw) and sw >= 2.0
+
+f_swL(float sw) =>
+    not na(sw) and (sw == 1.0 or sw == 3.0)
+
 f_flash(FB n, FB e, FB y) =>
+    // ── PSP: the swing bar [2], confirmed by the bar that just closed ──
     okN = i_use_nq and not na(n.d2) and (not i_ignore_doji or n.d2 != 0)
     okE = i_use_es and not na(e.d2) and (not i_ignore_doji or e.d2 != 0)
     okY = i_use_ym and not na(y.d2) and (not i_ignore_doji or y.d2 != 0)
@@ -697,12 +738,12 @@ f_flash(FB n, FB e, FB y) =>
     dir = 0
     who = ""
     if divP or divY
-        hiN = i_use_nq and n.swH
-        hiE = i_use_es and e.swH
-        hiY = divY     and y.swH
-        loN = i_use_nq and n.swL
-        loE = i_use_es and e.swL
-        loY = divY     and y.swL
+        hiN = i_use_nq and f_swH(n.sw)
+        hiE = i_use_es and f_swH(e.sw)
+        hiY = divY     and f_swH(y.sw)
+        loN = i_use_nq and f_swL(n.sw)
+        loE = i_use_es and f_swL(e.sw)
+        loY = divY     and f_swL(y.sw)
 
         nHi = (hiN ? 1 : 0) + (hiE ? 1 : 0) + (hiY ? 1 : 0)
         nLo = (loN ? 1 : 0) + (loE ? 1 : 0) + (loY ? 1 : 0)
@@ -711,23 +752,23 @@ f_flash(FB n, FB e, FB y) =>
             on  := true
             dir := nHi >= nLo ? -1 : 1
             who := f_who(divP, divY, okN, okE, int(n.d2), int(e.d2))
-    [on, dir, who]
 
-[on15, dir15, who15] = f_flash(n15, e15, y15)
-[on5m, dir5m, who5m] = f_flash(n5m, e5m, y5m)
+    // ── PCP: the bar that just closed, [1]. A PCP is only a disagreement of
+    //    direction, so it needs no swing and no confirming bar — it is known
+    //    one bar earlier than the PSP that may or may not follow it.
+    qN = i_use_nq and not na(n.d1) and (not i_ignore_doji or n.d1 != 0)
+    qE = i_use_es and not na(e.d1) and (not i_ignore_doji or e.d1 != 0)
+    qY = i_use_ym and not na(y.d1) and (not i_ignore_doji or y.d1 != 0)
 
-// No timer is needed, and none is possible to get wrong: the request always
-// reports the state as of the last CLOSED bar of that timeframe, so the
-// notice is replaced wholesale at the next close — which is exactly
-// "stands until the next close".
-live15 = i_fast_on and on15 and chartSec != 900
-live5m = i_fast_on and on5m and chartSec != 300
+    qP  = qN and qE and n.d1 != e.d1
+    qYm = qY and y.d1 > 0 and ((qE and e.d1 < 0) or (qN and n.d1 < 0))
 
-r15 = live15 ? "(15m " + (dir15 < 0 ? "▼" : "▲") + " " + who15 + ")" : ""
-r5m = live5m ? "(5m "  + (dir5m < 0 ? "▼" : "▲") + " " + who5m + ")" : ""
+    pOn  = qP or qYm
+    pWho = pOn ? f_who(qP, qYm, qN, qE, int(n.d1), int(e.d1)) : ""
+    [on, dir, who, pOn, pWho]
 
-c15 = dir15 < 0 ? i_col_bear : i_col_bull
-c5m = dir5m < 0 ? i_col_bear : i_col_bull
+[on15, dir15, who15, pcp15, pwho15] = f_flash(n15, e15, y15)
+[on5m, dir5m, who5m, pcp5m, pwho5m] = f_flash(n5m, e5m, y5m)
 
 // Kept as one-line statements on purpose: Pine treats a continuation line
 // indented by any multiple of four spaces as the start of a block, so a
@@ -745,7 +786,7 @@ mtfRow = mtfUp ? i_mtf_pad : 0
 
 // One cell per timeframe, not one joined string: a cell carries a single
 // text colour, and each timeframe has to be painted in its own state's.
-var table mtfTbl = table.new(mtfPos, 9, 1 + i_mtf_pad, border_width = 0)
+var table mtfTbl = table.new(mtfPos, 7, 1 + i_mtf_pad, border_width = 0)
 
 c_clear = color.new(color.black, 100)
 
@@ -755,7 +796,7 @@ if barstate.islast and i_mtf_on
             table.cell(mtfTbl, 0, mtfUp ? k : 1 + k, " ",
                  text_size = size.small, bgcolor = c_clear)
 
-    anything = r1w != "" or r1d != "" or r4h != "" or r1h != "" or rCh != "" or r15 != "" or r5m != ""
+    anything = r1w != "" or r1d != "" or r4h != "" or r1h != "" or rCh != ""
     table.cell(mtfTbl, 0, mtfRow, anything ? "ADI" : "", text_color = i_col_neut,
          text_size = size.small, bgcolor = c_clear)
 
@@ -780,17 +821,69 @@ if barstate.islast and i_mtf_on
         table.cell(mtfTbl, col, mtfRow, rCh, text_color = f_col(stCh),
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
-    if r15 != ""
-        table.cell(mtfTbl, col, mtfRow, r15, text_color = c15,
-             text_size = size.small, bgcolor = c_clear)
-        col := col + 1
-    if r5m != ""
-        table.cell(mtfTbl, col, mtfRow, r5m, text_color = c5m,
-             text_size = size.small, bgcolor = c_clear)
-        col := col + 1
-    if col <= 8
-        for k = col to 8
+    if col <= 6
+        for k = col to 6
             table.cell(mtfTbl, k, mtfRow, "", bgcolor = c_clear)
+
+// ══════════════════════════════════════════════════════════════
+//  THE FAST NOTICE  —  5m / 15m, in a box of its own
+//
+//  Deliberately NOT the carried-state engine, and deliberately not part of the
+//  breaks line. A PSP is a function of three bars and a PCP of one, so both
+//  can be read straight off the last bar with nothing accumulated across
+//  history — which is what lets this report a timeframe BELOW the chart's,
+//  where sampling once per chart bar would corrupt any carried state.
+//
+//  No timer is needed, and none is possible to get wrong: the request always
+//  reports the state as of the last CLOSED bar of that timeframe, so the
+//  notice is replaced wholesale at the next close of ITS OWN timeframe —
+//  which is exactly "stands for about five minutes, then goes".
+//
+//  Each timeframe is skipped on its own chart, where the bars already carry
+//  the marker: no 5m notice on a 5m chart, no 15m notice on a 15m chart.
+// ══════════════════════════════════════════════════════════════
+
+ok15 = i_fast_on and chartSec != 900
+ok5m = i_fast_on and chartSec != 300
+
+psp15 = ok15 and on15
+psp5m = ok5m and on5m
+pnd15 = ok15 and i_fast_pcp and pcp15 and not on15
+pnd5m = ok5m and i_fast_pcp and pcp5m and not on5m
+
+f15 = psp15 ? "⚡ PSP 15m " + (dir15 < 0 ? "▼" : "▲") + " " + who15 : pnd15 ? "◦ PCP 15m " + pwho15 : ""
+f5m = psp5m ? "⚡ PSP 5m " + (dir5m < 0 ? "▼" : "▲") + " " + who5m : pnd5m ? "◦ PCP 5m " + pwho5m : ""
+
+fc15 = psp15 ? (dir15 < 0 ? i_col_bear : i_col_bull) : i_col_pend
+fc5m = psp5m ? (dir5m < 0 ? i_col_bear : i_col_bull) : i_col_pend
+
+// The tint is what makes it read as a notice instead of a label. Only a PSP
+// gets one; a PCP stays flat grey so the two can never be confused.
+fb15 = i_fast_bg and psp15 ? color.new(dir15 < 0 ? i_col_bear : i_col_bull, 82) : c_clear
+fb5m = i_fast_bg and psp5m ? color.new(dir5m < 0 ? i_col_bear : i_col_bull, 82) : c_clear
+
+// One-line statements on purpose — see the note above mtfTop.
+fastTop = i_fast_h == "שמאל" ? position.top_left : i_fast_h == "מרכז" ? position.top_center : position.top_right
+fastMid = i_fast_h == "שמאל" ? position.middle_left : i_fast_h == "מרכז" ? position.middle_center : position.middle_right
+fastBot = i_fast_h == "שמאל" ? position.bottom_left : i_fast_h == "מרכז" ? position.bottom_center : position.bottom_right
+fastPos = i_fast_v == "למעלה" ? fastTop : i_fast_v == "באמצע" ? fastMid : fastBot
+fastSz  = i_fast_sz == "קטן" ? size.small : i_fast_sz == "רגיל" ? size.normal : i_fast_sz == "ענק" ? size.huge : size.large
+
+fastUp = i_fast_v == "למעלה"
+fastR0 = fastUp ? i_fast_pad : 0
+
+var table fastTbl = table.new(fastPos, 1, 2 + i_fast_pad, border_width = 0)
+
+if barstate.islast and i_fast_on
+    if i_fast_pad > 0
+        for k = 0 to i_fast_pad - 1
+            table.cell(fastTbl, 0, fastUp ? k : 2 + k, " ",
+                 text_size = size.small, bgcolor = c_clear)
+
+    table.cell(fastTbl, 0, fastR0, f15, text_color = fc15,
+         text_size = fastSz, bgcolor = fb15)
+    table.cell(fastTbl, 0, fastR0 + 1, f5m, text_color = fc5m,
+         text_size = fastSz, bgcolor = fb5m)
 
 // ══════════════════════════════════════════════════════════════
 //  PANEL  (optional, off by default)
@@ -884,6 +977,18 @@ if i_mtf_alert and i_mtf_on and goneTx != ""
 
 if i_mtf_alert and i_mtf_on and newTx != ""
     alert("ADI: " + newTx, alert.freq_once_per_bar)
+
+// The fast notice, as a real alert TradingView can push. Once per CHART bar at
+// most — on an hourly chart that is once an hour, so a second fast PSP inside
+// the same hour shows in the box but does not ring twice.
+// Seeded from a series expression, not from "", so the variable is series
+// string from the start and the append below has something it can assign to.
+fastTx = psp5m ? "5m " + (dir5m < 0 ? "▼" : "▲") + " " + who5m : ""
+if psp15
+    fastTx := fastTx + (fastTx == "" ? "" : "  ·  ") + "15m " + (dir15 < 0 ? "▼" : "▲") + " " + who15
+
+if i_fast_on and i_fast_alert and fastTx != ""
+    alert("ADI מהיר — PSP " + fastTx, alert.freq_once_per_bar)
 
 // ══════════════════════════════════════════════════════════════
 //  END OF SCRIPT
