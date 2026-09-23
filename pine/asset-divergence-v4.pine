@@ -1,6 +1,22 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.5
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.6
 // Pine Script V5
+//
+// v5.6 — fixes a desync v5.5 introduced:
+//  v5.5 moved each timeframe's clock out of the request and onto the
+//  built-in time_close(tf), to save a series. That is two different sources
+//  updating independently: time_close() comes off the chart's own bar times,
+//  the data comes off the request. The engine steps ONCE per timeframe bar,
+//  on the clock — so if the clock advanced a bar before the data did, the
+//  step ran on stale values and then did not run again until the next bar.
+//  On a daily timeframe that leaves the state a day behind and yesterday's
+//  divergence is never seen at all.
+//  The clock goes back inside the tuple, where it advances in lockstep with
+//  the data it times. To pay for it without returning to the memory limit,
+//  close[1]/high[1]/low[1] collapse into the two values the "taken" test
+//  actually compares, chosen inside the request. Still 138 series.
+//  Also adds a debug switch that prints the directions the script actually
+//  read, so a disagreement with the chart can be seen instead of guessed at.
 //
 // v5.5 — fixes "Memory limits exceeded", which v5.4 caused:
 //  v5.4 added six more request.security calls, each returning an eleven
@@ -148,6 +164,9 @@ i_pnl_h    = input.string("ימין", title="צד הפאנל",
 i_pnl_pad  = input.int(0, title="הרחקת הפאנל מהקצה (שורות)", minval=0, maxval=12, group=grp_mtf)
 i_col_neut = input.color(color.new(#ffffff, 15), title="צבע טקסט נייטרלי", group=grp_mtf)
 i_mtf_alert = input.bool(true, title="התראה על שבירה חדשה ועל ביטול", group=grp_mtf)
+i_debug    = input.bool(false, title="הצג ערכי בדיקה",
+     tooltip="מוסיף לשורה את הכיוון שהסקריפט באמת קרא לנר היומי האחרון שנסגר, לכל נכס.\n1 = עלייה · -1 = ירידה · 0 = דוג'י · NaN = אין נתון.\nאם זה לא תואם למה שאתה רואה בגרף — הבעיה בסימבולים שבהגדרות, לא בזיהוי.",
+     group=grp_mtf)
 
 // ══════════════════════════════════════════════════════════════
 //  TIMEFRAME GATE  (chart drawing only — the corner line is independent)
@@ -325,7 +344,8 @@ barcolor(tf_allowed and i_show_pcp_bars and is_pcp ? i_col_pcp : na,
 // What a stepped timeframe needs, and nothing more. d1/d2 are directions
 // already reduced inside the request; swH/swL are the three-bar swing already
 // decided there. hi2/lo2 are the swing bar's extremes, which become the level
-// to defend. c1/h1/l1 are the bar that just closed, for the "taken" test.
+// to defend. tkH/tkL are the bar that just closed, already reduced to the
+// one value each side of the "taken" test needs.
 type AB
     float d1  = na
     float d2  = na
@@ -333,9 +353,8 @@ type AB
     bool  swL = false
     float hi2 = na
     float lo2 = na
-    float c1  = na
-    float h1  = na
-    float l1  = na
+    float tkH = na
+    float tkL = na
 
 // The fast heads-up keeps no state and tests no level, so it needs the swing
 // bar and nothing else.
@@ -344,13 +363,21 @@ type FB
     bool  swH = false
     bool  swL = false
 
+//  The clock rides INSIDE the tuple on purpose. Timing it from the built-in
+//  time_close(tf) instead desynchronises it from the data it is timing: the
+//  engine steps once per bar on the clock, so a clock that moves first makes
+//  that one step read stale values, and the state then sits wrong until the
+//  next bar. Here they can only move together.
 f_load(AB b, simple string sym, simple string tf) =>
-    [d1, d2, swH, swL, hi2, lo2, c1, h1, l1] = request.security(sym, tf,
-         [close[1] > open[1] ? 1.0 : close[1] < open[1] ? -1.0 : na(close[1]) ? na : 0.0,
+    [tc, d1, d2, swH, swL, hi2, lo2, tkH, tkL] = request.security(sym, tf,
+         [time_close[1],
+          close[1] > open[1] ? 1.0 : close[1] < open[1] ? -1.0 : na(close[1]) ? na : 0.0,
           close[2] > open[2] ? 1.0 : close[2] < open[2] ? -1.0 : na(close[2]) ? na : 0.0,
           high[2] > high[3] and high[2] > high[1],
           low[2]  < low[3]  and low[2]  < low[1],
-          high[2], low[2], close[1], high[1], low[1]],
+          high[2], low[2],
+          i_inv_wick ? high[1] : close[1],
+          i_inv_wick ? low[1]  : close[1]],
          lookahead = barmerge.lookahead_off,
          gaps      = barmerge.gaps_off)
     b.d1  := d1
@@ -359,10 +386,9 @@ f_load(AB b, simple string sym, simple string tf) =>
     b.swL := swL
     b.hi2 := hi2
     b.lo2 := lo2
-    b.c1  := c1
-    b.h1  := h1
-    b.l1  := l1
-    b.l1
+    b.tkH := tkH
+    b.tkL := tkL
+    tc
 
 f_fast(FB b, simple string sym, simple string tf) =>
     [d2, swH, swL] = request.security(sym, tf,
@@ -385,10 +411,9 @@ f_fill(AB b, float o, float h, float l, float c) =>
     b.swL := l[2] < l[3] and l[2] < l[1]
     b.hi2 := h[2]
     b.lo2 := l[2]
-    b.c1  := c[1]
-    b.h1  := h[1]
-    b.l1  := l[1]
-    b.l1
+    b.tkH := i_inv_wick ? h[1] : c[1]
+    b.tkL := i_inv_wick ? l[1] : c[1]
+    b.tkL
 
 // One reusable object per asset per timeframe — allocated once, updated in
 // place, so nothing accumulates across bars.
@@ -414,21 +439,21 @@ var FB n5m = FB.new()
 var FB e5m = FB.new()
 var FB y5m = FB.new()
 
-f_load(n1h, i_sym_nq, "60")
-f_load(e1h, i_sym_es, "60")
-f_load(y1h, i_sym_ym, "60")
+tn1h = f_load(n1h, i_sym_nq, "60")
+te1h = f_load(e1h, i_sym_es, "60")
+ty1h = f_load(y1h, i_sym_ym, "60")
 
-f_load(n4h, i_sym_nq, "240")
-f_load(e4h, i_sym_es, "240")
-f_load(y4h, i_sym_ym, "240")
+tn4h = f_load(n4h, i_sym_nq, "240")
+te4h = f_load(e4h, i_sym_es, "240")
+ty4h = f_load(y4h, i_sym_ym, "240")
 
-f_load(n1d, i_sym_nq, "D")
-f_load(e1d, i_sym_es, "D")
-f_load(y1d, i_sym_ym, "D")
+tn1d = f_load(n1d, i_sym_nq, "D")
+te1d = f_load(e1d, i_sym_es, "D")
+ty1d = f_load(y1d, i_sym_ym, "D")
 
-f_load(n1w, i_sym_nq, "W")
-f_load(e1w, i_sym_es, "W")
-f_load(y1w, i_sym_ym, "W")
+tn1w = f_load(n1w, i_sym_nq, "W")
+te1w = f_load(e1w, i_sym_es, "W")
+ty1w = f_load(y1w, i_sym_ym, "W")
 
 // The two fast timeframes. Read on the last bar only, never stepped through
 // history, so a chart above them is not a problem.
@@ -444,12 +469,12 @@ f_fill(nCh, a_nq_o, a_nq_h, a_nq_l, a_nq_c)
 f_fill(eCh, a_es_o, a_es_h, a_es_l, a_es_c)
 f_fill(yCh, a_ym_o, a_ym_h, a_ym_l, a_ym_c)
 
-// The clock that tells the engine a bar of that timeframe has closed.
-// time_close() is a built-in — it costs no request.security call.
-t1h = time_close("60")
-t4h = time_close("240")
-t1d = time_close("D")
-t1w = time_close("W")
+// The clock each engine steps on, taken from whichever asset is enabled.
+// It came across in the same tuple as the data, so the two cannot drift.
+t1h = i_use_nq ? tn1h : i_use_es ? te1h : ty1h
+t4h = i_use_nq ? tn4h : i_use_es ? te4h : ty4h
+t1d = i_use_nq ? tn1d : i_use_es ? te1d : ty1d
+t1w = i_use_nq ? tn1w : i_use_es ? te1w : ty1w
 
 // ══════════════════════════════════════════════════════════════
 //  PER-TIMEFRAME STATE
@@ -467,9 +492,10 @@ type MtfSt
     bool   pndOn  = false // the bar that just closed is a PCP, verdict not in
     string pndWho = ""
 
-// Has the level been taken? Close beyond it by default, wick beyond it on request.
-f_taken(float lvl, int dir, float hi, float lo, float cl) =>
-    na(lvl) ? false : dir == -1 ? (i_inv_wick ? hi > lvl : cl > lvl) : (i_inv_wick ? lo < lvl : cl < lvl)
+// Has the level been taken? tkH and tkL are already the right side to compare
+// — the request picked close or wick according to i_inv_wick.
+f_taken(float lvl, int dir, float tkH, float tkL) =>
+    na(lvl) ? false : dir == -1 ? tkH > lvl : tkL < lvl
 
 // Who took part in the divergence. ES and NQ are both in whenever they split;
 // YM is in only when its strength rule fired, and it drags in whichever of the
@@ -510,9 +536,9 @@ f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y) =>
 
         // ── 1. was the level taken by the bar that just closed? ──
         if s.live
-            tkN = f_taken(v.nq, s.dir, n.h1, n.l1, n.c1)
-            tkE = f_taken(v.es, s.dir, e.h1, e.l1, e.c1)
-            tkY = f_taken(v.ym, s.dir, y.h1, y.l1, y.c1)
+            tkN = f_taken(v.nq, s.dir, n.tkH, n.tkL)
+            tkE = f_taken(v.es, s.dir, e.tkH, e.tkL)
+            tkY = f_taken(v.ym, s.dir, y.tkH, y.tkL)
             if tkN or tkE or tkY
                 s.live   := false
                 s.isGone := true
@@ -667,6 +693,14 @@ r5m = live5m ? "5m "  + (dir5m < 0 ? "▼" : "▲") + " " + who5m : ""
 c15 = dir15 < 0 ? i_col_bear : i_col_bull
 c5m = dir5m < 0 ? i_col_bear : i_col_bull
 
+// What the script read for the last CLOSED daily bar, per asset. If this
+// disagrees with the candles on screen, the symbols in the settings are not
+// the ones being looked at — the detection is not the problem.
+f_d(float d) =>
+    na(d) ? "NaN" : d > 0 ? "+1" : d < 0 ? "-1" : "0"
+
+dbg = i_debug ? "1D: NQ" + f_d(n1d.d1) + " ES" + f_d(e1d.d1) + " YM" + f_d(y1d.d1) : ""
+
 // Kept as one-line statements on purpose: Pine treats a continuation line
 // indented by any multiple of four spaces as the start of a block, so a
 // column-aligned wrapped ternary is a syntax error waiting to happen.
@@ -683,7 +717,7 @@ mtfRow = mtfUp ? i_mtf_pad : 0
 
 // One cell per timeframe, not one joined string: a cell carries a single
 // text colour, and each timeframe has to be painted in its own state's.
-var table mtfTbl = table.new(mtfPos, 8, 1 + i_mtf_pad, border_width = 0)
+var table mtfTbl = table.new(mtfPos, 9, 1 + i_mtf_pad, border_width = 0)
 
 c_clear = color.new(color.black, 100)
 
@@ -693,7 +727,7 @@ if barstate.islast and i_mtf_on
             table.cell(mtfTbl, 0, mtfUp ? k : 1 + k, " ",
                  text_size = size.small, bgcolor = c_clear)
 
-    anything = r1w != "" or r1d != "" or r4h != "" or r1h != "" or rCh != "" or r15 != "" or r5m != ""
+    anything = r1w != "" or r1d != "" or r4h != "" or r1h != "" or rCh != "" or r15 != "" or r5m != "" or dbg != ""
     table.cell(mtfTbl, 0, mtfRow, anything ? "ADI" : "", text_color = i_col_neut,
          text_size = size.small, bgcolor = c_clear)
 
@@ -726,8 +760,12 @@ if barstate.islast and i_mtf_on
         table.cell(mtfTbl, col, mtfRow, r5m, text_color = c5m,
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
-    if col <= 7
-        for k = col to 7
+    if dbg != ""
+        table.cell(mtfTbl, col, mtfRow, dbg, text_color = i_col_neut,
+             text_size = size.small, bgcolor = c_clear)
+        col := col + 1
+    if col <= 8
+        for k = col to 8
             table.cell(mtfTbl, k, mtfRow, "", bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
