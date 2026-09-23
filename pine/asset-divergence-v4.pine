@@ -1,6 +1,18 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.6
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.7
 // Pine Script V5
+//
+// v5.7:
+//  - The chart timeframe's row in the panel reports nothing while the same
+//    engine reports a live break on 1W, so the fault is somewhere on the
+//    chart-timeframe path alone. Two guesses at it from reading the code
+//    were both wrong, so the debug readout moves from the end of the line —
+//    where it was pushed off a phone screen — into the panel, and prints the
+//    raw values the engine is actually working from.
+//  - The 5m/15m heads-up is parenthesised, "(5m ▲ ALL)". It was reading as
+//    the same kind of thing as "1D ▲ NQ ES" when it is not: one is a
+//    standing break, the other a moment. Brackets say "aside" without
+//    adding a symbol to remember.
 //
 // v5.6 — fixes a desync v5.5 introduced:
 //  v5.5 moved each timeframe's clock out of the request and onto the
@@ -164,8 +176,8 @@ i_pnl_h    = input.string("ימין", title="צד הפאנל",
 i_pnl_pad  = input.int(0, title="הרחקת הפאנל מהקצה (שורות)", minval=0, maxval=12, group=grp_mtf)
 i_col_neut = input.color(color.new(#ffffff, 15), title="צבע טקסט נייטרלי", group=grp_mtf)
 i_mtf_alert = input.bool(true, title="התראה על שבירה חדשה ועל ביטול", group=grp_mtf)
-i_debug    = input.bool(false, title="הצג ערכי בדיקה",
-     tooltip="מוסיף לשורה את הכיוון שהסקריפט באמת קרא לנר היומי האחרון שנסגר, לכל נכס.\n1 = עלייה · -1 = ירידה · 0 = דוג'י · NaN = אין נתון.\nאם זה לא תואם למה שאתה רואה בגרף — הבעיה בסימבולים שבהגדרות, לא בזיהוי.",
+i_debug    = input.bool(false, title="הצג ערכי בדיקה (בפאנל)",
+     tooltip="מוסיף לפאנל ארבע שורות עם הערכים הגולמיים של מסגרת הגרף:\nd1 = כיוון הנר האחרון שנסגר · d2 = הנר שלפניו · sw = סווינגים · st = מצב המנוע.\nצריך להדליק גם את הפאנל.",
      group=grp_mtf)
 
 // ══════════════════════════════════════════════════════════════
@@ -687,19 +699,11 @@ f_flash(FB n, FB e, FB y) =>
 live15 = i_fast_on and on15 and chartSec != 900
 live5m = i_fast_on and on5m and chartSec != 300
 
-r15 = live15 ? "15m " + (dir15 < 0 ? "▼" : "▲") + " " + who15 : ""
-r5m = live5m ? "5m "  + (dir5m < 0 ? "▼" : "▲") + " " + who5m : ""
+r15 = live15 ? "(15m " + (dir15 < 0 ? "▼" : "▲") + " " + who15 + ")" : ""
+r5m = live5m ? "(5m "  + (dir5m < 0 ? "▼" : "▲") + " " + who5m + ")" : ""
 
 c15 = dir15 < 0 ? i_col_bear : i_col_bull
 c5m = dir5m < 0 ? i_col_bear : i_col_bull
-
-// What the script read for the last CLOSED daily bar, per asset. If this
-// disagrees with the candles on screen, the symbols in the settings are not
-// the ones being looked at — the detection is not the problem.
-f_d(float d) =>
-    na(d) ? "NaN" : d > 0 ? "+1" : d < 0 ? "-1" : "0"
-
-dbg = i_debug ? "1D: NQ" + f_d(n1d.d1) + " ES" + f_d(e1d.d1) + " YM" + f_d(y1d.d1) : ""
 
 // Kept as one-line statements on purpose: Pine treats a continuation line
 // indented by any multiple of four spaces as the start of a block, so a
@@ -727,7 +731,7 @@ if barstate.islast and i_mtf_on
             table.cell(mtfTbl, 0, mtfUp ? k : 1 + k, " ",
                  text_size = size.small, bgcolor = c_clear)
 
-    anything = r1w != "" or r1d != "" or r4h != "" or r1h != "" or rCh != "" or r15 != "" or r5m != "" or dbg != ""
+    anything = r1w != "" or r1d != "" or r4h != "" or r1h != "" or rCh != "" or r15 != "" or r5m != ""
     table.cell(mtfTbl, 0, mtfRow, anything ? "ADI" : "", text_color = i_col_neut,
          text_size = size.small, bgcolor = c_clear)
 
@@ -760,10 +764,6 @@ if barstate.islast and i_mtf_on
         table.cell(mtfTbl, col, mtfRow, r5m, text_color = c5m,
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
-    if dbg != ""
-        table.cell(mtfTbl, col, mtfRow, dbg, text_color = i_col_neut,
-             text_size = size.small, bgcolor = c_clear)
-        col := col + 1
     if col <= 8
         for k = col to 8
             table.cell(mtfTbl, k, mtfRow, "", bgcolor = c_clear)
@@ -783,7 +783,20 @@ pnlPos = i_pnl_v == "למעלה" ? pnlTop : i_pnl_v == "באמצע" ? pnlMid : p
 pnlUp  = i_pnl_v == "למעלה"
 pnlR0  = pnlUp ? i_pnl_pad : 0
 
-var table pnlTbl = table.new(pnlPos, 2, 6 + i_pnl_pad, border_width = 0)
+dbgRows = i_debug ? 4 : 0
+
+var table pnlTbl = table.new(pnlPos, 2, 6 + dbgRows + i_pnl_pad, border_width = 0)
+
+// The raw values the chart-timeframe engine is working from. d1 is the bar
+// that just closed, d2 the one before it — the swing candidate.
+f_d(float d) =>
+    na(d) ? "na" : d > 0 ? "+1" : d < 0 ? "-1" : "0"
+
+f_row3(float n, float e, float y) =>
+    "N" + f_d(n) + " E" + f_d(e) + " Y" + f_d(y)
+
+f_flag(bool b) =>
+    b ? "1" : "0"
 
 f_stat(MtfSt s, bool shown) =>
     not shown ? "▶" : s.live ? f_arrow(s) + " " + s.who : s.pndOn ? "◦ " + s.pndWho : "—"
@@ -794,7 +807,7 @@ f_statCol(MtfSt s, bool shown) =>
 if barstate.islast and i_pnl_on
     if i_pnl_pad > 0
         for k = 0 to i_pnl_pad - 1
-            table.cell(pnlTbl, 0, pnlUp ? k : 6 + k, " ",
+            table.cell(pnlTbl, 0, pnlUp ? k : 6 + dbgRows + k, " ",
                  text_size = size.small, bgcolor = c_clear)
 
     table.cell(pnlTbl, 0, pnlR0, "ADI", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
@@ -809,6 +822,16 @@ if barstate.islast and i_pnl_on
     table.cell(pnlTbl, 1, pnlR0 + 4, f_stat(st1h, sh1h), text_color = f_statCol(st1h, sh1h), text_size = size.small, bgcolor = c_clear)
     table.cell(pnlTbl, 0, pnlR0 + 5, chName, text_color = f_statCol(stCh, tf_allowed), text_size = size.small, bgcolor = c_clear)
     table.cell(pnlTbl, 1, pnlR0 + 5, f_stat(stCh, tf_allowed), text_color = f_statCol(stCh, tf_allowed), text_size = size.small, bgcolor = c_clear)
+
+    if i_debug
+        table.cell(pnlTbl, 0, pnlR0 + 6, "d1", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 1, pnlR0 + 6, f_row3(nCh.d1, eCh.d1, yCh.d1), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 0, pnlR0 + 7, "d2", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 1, pnlR0 + 7, f_row3(nCh.d2, eCh.d2, yCh.d2), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 0, pnlR0 + 8, "sw", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 1, pnlR0 + 8, "H" + f_flag(nCh.swH) + f_flag(eCh.swH) + f_flag(yCh.swH) + " L" + f_flag(nCh.swL) + f_flag(eCh.swL) + f_flag(yCh.swL), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 0, pnlR0 + 9, "st", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 1, pnlR0 + 9, "pnd" + f_flag(stCh.pndOn) + " lv" + f_flag(stCh.live) + " stp" + f_flag(stCh.lastT != 0), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
 //  ALERTS
