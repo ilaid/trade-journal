@@ -700,7 +700,7 @@ f_step(st1w, v1w, t1w, n1w, e1w, y1w)
 // ══════════════════════════════════════════════════════════════
 //  THE LINE
 //
-//  Order:  1W · 1D · 4H · 1H · [your chart, only if it is 1H or higher] · 15m · 5m
+//  Order:  1W · 1D · 4H · 1H · [your chart, only if it is 1H or higher]
 //
 //  Each cell renders one of three states: a standing break in its
 //  direction's colour, otherwise the grey bar that closed with a divergence
