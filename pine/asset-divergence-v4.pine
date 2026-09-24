@@ -1,6 +1,25 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.9
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.10
 // Pine Script V5
+//
+// v5.10 — the breaks line was still the thing being read:
+//  v5.9 gave the fast signal a box but left the CHART'S OWN timeframe in the
+//  breaks line, which is where "5m ▼ ALL" was coming from all along — a
+//  standing 5m break, in the line, visible only while sitting on a 5m chart.
+//  That is the line v5.4 added for a daily chart, and below 1H it does the
+//  opposite of what this indicator is for.
+//    - The line is 1H and above, full stop. The chart's own timeframe joins it
+//      only when the chart is 1H or higher; on 1m/5m/15m it is dropped, and
+//      the MTF alert for it is dropped with it, since the fast alert covers
+//      those now.
+//    - The box no longer skips its own chart. A 5m PSP shows in the box on a
+//      5m chart too — same notice everywhere, instead of a different shape of
+//      answer depending on where you are standing.
+//    - The box holds its place when nothing is live, "15m — / 5m —", so it can
+//      be seen to be alive. One switch turns that off once it has been.
+//  NOTE: alert() writes nothing by itself. TradingView only delivers it once
+//  an alert is created on the indicator with the condition "Any alert()
+//  function call" — the script cannot create that for you.
 //
 // v5.9 — the 5m/15m heads-up becomes an actual notice:
 //  It was a cell in the breaks line, in parentheses, in the same small type as
@@ -219,12 +238,15 @@ i_fast_pcp = input.bool(true, title="כלול גם PCP (דיברגנס בלי ס
      group=grp_fast)
 i_fast_v   = input.string("למעלה", title="גובה ההתרעה",
      options=["למעלה", "באמצע", "למטה"], group=grp_fast)
-i_fast_h   = input.string("מרכז", title="צד ההתרעה",
+i_fast_h   = input.string("ימין", title="צד ההתרעה",
      options=["שמאל", "מרכז", "ימין"], group=grp_fast)
 i_fast_pad = input.int(0, title="הרחקת ההתרעה מהקצה (שורות)", minval=0, maxval=12, group=grp_fast)
 i_fast_sz  = input.string("גדול", title="גודל הטקסט",
      options=["קטן", "רגיל", "גדול", "ענק"], group=grp_fast)
 i_fast_bg  = input.bool(true, title="רקע מודגש", group=grp_fast)
+i_fast_idle = input.bool(true, title="החזק את התיבה גם כשאין אות",
+     tooltip="מציג \"15m —\" ו-\"5m —\" באפור כשאין כלום, כדי שאפשר יהיה לראות שהתיבה חיה ואיפה היא יושבת.\nכבה את זה אחרי שווידאת.",
+     group=grp_fast)
 i_fast_alert = input.bool(true, title="התראה (alert) על PSP מהיר",
      tooltip="שולח alert של TradingView כשנוצר PSP מהיר, כדי שאפשר יהיה לקבל התראה לנייד.\nלכל היותר אחת לנר של הגרף — על גרף שעתי זו אחת לשעה.",
      group=grp_fast)
@@ -678,7 +700,7 @@ f_step(st1w, v1w, t1w, n1w, e1w, y1w)
 // ══════════════════════════════════════════════════════════════
 //  THE LINE
 //
-//  Order:  1W · 1D · 4H · 1H · [your chart] · 15m · 5m
+//  Order:  1W · 1D · 4H · 1H · [your chart, only if it is 1H or higher] · 15m · 5m
 //
 //  Each cell renders one of three states: a standing break in its
 //  direction's colour, otherwise the grey bar that closed with a divergence
@@ -697,6 +719,12 @@ sh4h = timeframe.in_seconds("240") > chartSec
 sh1d = timeframe.in_seconds("D")   > chartSec
 sh1w = timeframe.in_seconds("W")   > chartSec
 
+// The chart's own timeframe belongs in this line only when the line's own
+// rule — 1H and above — is true of it. On 1m/5m/15m it was the "5m ▼ ALL"
+// that made the fast signal look like a list entry you could only see by
+// standing on its timeframe. Those belong to the box below.
+chIsBig = chartSec >= timeframe.in_seconds("60")
+
 chName = is_1m ? "1m" : is_5m ? "5m" : is_15m ? "15m" : is_1h ? "1H" : is_4h ? "4H" : is_1d ? "1D" : is_1w ? "1W" : tf_str
 
 f_arrow(MtfSt s) =>
@@ -712,7 +740,7 @@ r1w = sh1w ? f_rec(st1w, "1W") : ""
 r1d = sh1d ? f_rec(st1d, "1D") : ""
 r4h = sh4h ? f_rec(st4h, "4H") : ""
 r1h = sh1h ? f_rec(st1h, "1H") : ""
-rCh = tf_allowed ? f_rec(stCh, chName) : ""
+rCh = tf_allowed and chIsBig ? f_rec(stCh, chName) : ""
 
 // ── the fast heads-up ──
 //  Deliberately NOT the carried-state engine. A PSP is a function of three
@@ -839,20 +867,18 @@ if barstate.islast and i_mtf_on
 //  notice is replaced wholesale at the next close of ITS OWN timeframe —
 //  which is exactly "stands for about five minutes, then goes".
 //
-//  Each timeframe is skipped on its own chart, where the bars already carry
-//  the marker: no 5m notice on a 5m chart, no 15m notice on a 15m chart.
+//  Neither timeframe is skipped on its own chart any more. Skipping them made
+//  the answer change shape depending on where you were standing — a box on one
+//  chart, a line entry on another — which is exactly what was confusing.
 // ══════════════════════════════════════════════════════════════
 
-ok15 = i_fast_on and chartSec != 900
-ok5m = i_fast_on and chartSec != 300
+psp15 = i_fast_on and on15
+psp5m = i_fast_on and on5m
+pnd15 = i_fast_on and i_fast_pcp and pcp15 and not on15
+pnd5m = i_fast_on and i_fast_pcp and pcp5m and not on5m
 
-psp15 = ok15 and on15
-psp5m = ok5m and on5m
-pnd15 = ok15 and i_fast_pcp and pcp15 and not on15
-pnd5m = ok5m and i_fast_pcp and pcp5m and not on5m
-
-f15 = psp15 ? "⚡ PSP 15m " + (dir15 < 0 ? "▼" : "▲") + " " + who15 : pnd15 ? "◦ PCP 15m " + pwho15 : ""
-f5m = psp5m ? "⚡ PSP 5m " + (dir5m < 0 ? "▼" : "▲") + " " + who5m : pnd5m ? "◦ PCP 5m " + pwho5m : ""
+f15 = psp15 ? "⚡ PSP 15m " + (dir15 < 0 ? "▼" : "▲") + " " + who15 : pnd15 ? "◦ PCP 15m " + pwho15 : i_fast_idle ? "15m —" : ""
+f5m = psp5m ? "⚡ PSP 5m " + (dir5m < 0 ? "▼" : "▲") + " " + who5m : pnd5m ? "◦ PCP 5m " + pwho5m : i_fast_idle ? "5m —" : ""
 
 fc15 = psp15 ? (dir15 < 0 ? i_col_bear : i_col_bull) : i_col_pend
 fc5m = psp5m ? (dir5m < 0 ? i_col_bear : i_col_bull) : i_col_pend
@@ -969,8 +995,8 @@ if barstate.islast and i_pnl_on
 f_alertTx(MtfSt s, string nm) =>
     nm + " " + f_arrow(s) + " " + s.who
 
-newTx  = sh1w and st1w.isNew ? f_alertTx(st1w, "1W") : sh1d and st1d.isNew ? f_alertTx(st1d, "1D") : sh4h and st4h.isNew ? f_alertTx(st4h, "4H") : sh1h and st1h.isNew ? f_alertTx(st1h, "1H") : tf_allowed and stCh.isNew ? f_alertTx(stCh, chName) : ""
-goneTx = sh1w and st1w.isGone ? f_alertTx(st1w, "1W") : sh1d and st1d.isGone ? f_alertTx(st1d, "1D") : sh4h and st4h.isGone ? f_alertTx(st4h, "4H") : sh1h and st1h.isGone ? f_alertTx(st1h, "1H") : tf_allowed and stCh.isGone ? f_alertTx(stCh, chName) : ""
+newTx  = sh1w and st1w.isNew ? f_alertTx(st1w, "1W") : sh1d and st1d.isNew ? f_alertTx(st1d, "1D") : sh4h and st4h.isNew ? f_alertTx(st4h, "4H") : sh1h and st1h.isNew ? f_alertTx(st1h, "1H") : tf_allowed and chIsBig and stCh.isNew ? f_alertTx(stCh, chName) : ""
+goneTx = sh1w and st1w.isGone ? f_alertTx(st1w, "1W") : sh1d and st1d.isGone ? f_alertTx(st1d, "1D") : sh4h and st4h.isGone ? f_alertTx(st4h, "4H") : sh1h and st1h.isGone ? f_alertTx(st1h, "1H") : tf_allowed and chIsBig and stCh.isGone ? f_alertTx(stCh, chName) : ""
 
 if i_mtf_alert and i_mtf_on and goneTx != ""
     alert("ADI: נשבר — " + goneTx, alert.freq_once_per_bar)
