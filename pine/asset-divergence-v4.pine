@@ -1,6 +1,25 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.10
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.11
 // Pine Script V5
+//
+// v5.11 — YM weakness becomes a category of its own:
+//  Until now YM counted only when it showed STRENGTH — up while ES and/or NQ
+//  were down. The mirror case, YM DOWN while the others are up, was simply
+//  not an event, so a day where the Dow alone refused to follow left no trace.
+//  It is an event now, with three deliberate constraints:
+//    - It only fires when nothing else would have. If ES and NQ are already
+//      split, that split is the signal and YM does not reshape it; weakness is
+//      read only off bars the other two agreed on, which is exactly the
+//      "everything up except YM" picture it is meant to catch.
+//    - 4H and above only. Below that a single index disagreeing is noise, so
+//      the 4H/1D/1W engines carry it, the chart's own timeframe carries it
+//      only on a 4H-or-higher chart, and 1H / 15m / 5m never do.
+//    - It is marked as a DIFFERENT break, not folded in with the rest: its own
+//      colour on the bars and in the line (amber by default), and a direction
+//      tag on the asset list — "YM↑" for strength, "YM↓" for weakness, and
+//      "ALL↑" / "ALL↓" when all three took part. The tag says which rule fired
+//      without a legend to remember.
+//  No new request.security: still 138 series across 21 calls.
 //
 // v5.10 — the breaks line was still the thing being read:
 //  v5.9 gave the fast signal a box but left the CHART'S OWN timeframe in the
@@ -171,8 +190,11 @@ i_sym_es   = input.symbol("ES1!", title="סימבול ES", group=grp_assets)
 i_sym_ym   = input.symbol("YM1!", title="סימבול YM", group=grp_assets)
 i_use_nq   = input.bool(true,  title="כלול NQ", group=grp_assets)
 i_use_es   = input.bool(true,  title="כלול ES", group=grp_assets)
-i_use_ym   = input.bool(true,  title="כלול YM (חוזקה בלבד)",
-     tooltip="YM יוצר דיברגנס רק כשהוא נסגר בעלייה בזמן ש-ES ו/או NQ נסגרים בירידה.",
+i_use_ym   = input.bool(true,  title="כלול YM",
+     tooltip="חוזקה: YM נסגר בעלייה בזמן ש-ES ו/או NQ נסגרים בירידה. מסומן YM↑.",
+     group=grp_assets)
+i_ym_weak  = input.bool(true, title="כלול גם חולשת YM (4 שעות ומעלה)",
+     tooltip="YM נסגר בירידה בזמן ש-ES ו-NQ נסגרים בעלייה. מסומן YM↓ ובצבע נפרד.\nנספר רק כשאין כבר דיברגנס אחר — אם ES ו-NQ ממילא חלוקים, זו שבירה רגילה.\nפעיל רק על נרות של 4 שעות ומעלה; ב-1H ומטה חולשה של מדד בודד היא רעש.",
      group=grp_assets)
 i_settle   = input.string("כבוי — כמו הגרף", title="Settlement כסגירה יומית",
      options=["כבוי — כמו הגרף", "דלוק", "ברירת המחדל של הסימבול"],
@@ -191,6 +213,9 @@ i_tf_1w    = input.bool(true,  title="שבועי",  group=grp_tf)
 grp_col    = "═══  סימונים וצבעים  ═══"
 i_col_bull = input.color(color.new(#00e5ff, 0), title="אות שורי", group=grp_col)
 i_col_bear = input.color(color.new(#ff1744, 0), title="אות דובי", group=grp_col)
+i_col_weak = input.color(color.new(#ff9100, 0), title="אות חולשת YM (YM↓)",
+     tooltip="הצבע השלישי. כל סימון בצבע הזה הגיע מהכלל של חולשת YM ולא מדיברגנס רגיל.",
+     group=grp_col)
 i_ext_transp = input.int(45, title="עמעום סימון של נכס אחר", minval=0, maxval=90,
      tooltip="שקיפות הסימון החלול, שמצויר כשהסווינג קרה בנכס אחר ולא בסימבול שעל הגרף.",
      group=grp_col)
@@ -265,6 +290,16 @@ is_4h  = tf_str == "240"
 is_1d  = tf_str == "D"
 is_1w  = tf_str == "W"
 
+// chartSec lives here rather than down beside the line, because the weakness
+// rule needs it before the detection below.
+chartSec = timeframe.in_seconds(timeframe.period)
+
+// YM weakness is a 4H-and-above rule. On the chart's own bars that means the
+// chart itself has to be 4H or higher; the stepped 4H/1D/1W engines carry it
+// whatever chart you are standing on, because it is a property of the candle,
+// not of where you are looking from.
+ymwTfOk = i_ym_weak and chartSec >= timeframe.in_seconds("240")
+
 tf_allowed = (is_1m  and i_tf_1m)  or
              (is_5m  and i_tf_5m)  or
              (is_15m and i_tf_15m) or
@@ -311,9 +346,12 @@ ym_dir = f_dir(a_ym_o, a_ym_c)
 //  PCP DETECTION
 //
 //  ES vs NQ : any direction mismatch is a divergence.
-//  YM       : asymmetric — YM only matters when it shows STRENGTH,
-//             i.e. YM closes UP while ES and/or NQ close DOWN.
-//             YM down against the other two up is NOT a signal.
+//  YM up    : STRENGTH — YM closes UP while ES and/or NQ close DOWN.
+//  YM down  : WEAKNESS — YM closes DOWN while the others close UP. A separate
+//             category, 4H and above only, and only when neither of the two
+//             rules above already fired: if ES and NQ are split, that split is
+//             the signal. Since they must agree for this to be reachable,
+//             "at least one of them up" means both of them up in practice.
 //  1m       : YM is excluded entirely.
 // ══════════════════════════════════════════════════════════════
 
@@ -326,7 +364,11 @@ div_es_nq = nq_ok and es_ok and (nq_dir != es_dir)
 div_ym = ym_ok and ym_dir > 0 and
          ((es_ok and es_dir < 0) or (nq_ok and nq_dir < 0))
 
-is_pcp = div_es_nq or div_ym
+div_ymw = ymwTfOk and ym_ok and ym_dir < 0 and
+          ((es_ok and es_dir > 0) or (nq_ok and nq_dir > 0)) and
+          not div_es_nq and not div_ym
+
+is_pcp = div_es_nq or div_ym or div_ymw
 
 // ══════════════════════════════════════════════════════════════
 //  PSP DETECTION  — 3-Bar Swing, Zero Repaint, No Flicker
@@ -348,11 +390,11 @@ own_lo = f_sw_lo(low)
 
 ext_hi = (i_use_nq  and f_sw_hi(a_nq_h)) or
          (i_use_es  and f_sw_hi(a_es_h)) or
-         (div_ym[1] and f_sw_hi(a_ym_h))
+         ((div_ym[1] or div_ymw[1]) and f_sw_hi(a_ym_h))
 
 ext_lo = (i_use_nq  and f_sw_lo(a_nq_l)) or
          (i_use_es  and f_sw_lo(a_es_l)) or
-         (div_ym[1] and f_sw_lo(a_ym_l))
+         ((div_ym[1] or div_ymw[1]) and f_sw_lo(a_ym_l))
 
 confirmed = barstate.isconfirmed
 pcp_at_1  = is_pcp[1]          // immutable — bar[1] is fully closed
@@ -369,11 +411,18 @@ psp_bull_ext = psp_base and ext_lo and not own_lo
 //  offset = -1 places the marker on bar[1] — the bar that was resolved.
 // ══════════════════════════════════════════════════════════════
 
-c_bear_ext = color.new(i_col_bear, i_ext_transp)
-c_bull_ext = color.new(i_col_bull, i_ext_transp)
+// plotchar takes a series colour, so the weakness category needs no extra
+// plots — the same four markers simply come out amber when bar[1]'s divergence
+// came from the weakness rule.
+wk1 = div_ymw[1]
+
+c_bear_own = wk1 ? i_col_weak : i_col_bear
+c_bull_own = wk1 ? i_col_weak : i_col_bull
+c_bear_ext = color.new(c_bear_own, i_ext_transp)
+c_bull_ext = color.new(c_bull_own, i_ext_transp)
 
 plotchar(psp_bear_own ? 1 : na, title="PSP Bear — Own Asset",
-     char="▴", location=location.abovebar, color=i_col_bear,
+     char="▴", location=location.abovebar, color=c_bear_own,
      offset=-1, size=size.tiny)
 
 plotchar(psp_bear_ext ? 1 : na, title="PSP Bear — Other Asset",
@@ -381,7 +430,7 @@ plotchar(psp_bear_ext ? 1 : na, title="PSP Bear — Other Asset",
      offset=-1, size=size.tiny)
 
 plotchar(psp_bull_own ? 1 : na, title="PSP Bull — Own Asset",
-     char="▾", location=location.belowbar, color=i_col_bull,
+     char="▾", location=location.belowbar, color=c_bull_own,
      offset=-1, size=size.tiny)
 
 plotchar(psp_bull_ext ? 1 : na, title="PSP Bull — Other Asset",
@@ -581,6 +630,7 @@ type MtfSt
     string who    = ""    // assets that took part in the divergence, or "ALL"
     bool   isNew  = false // set on the chart bar the break was recorded
     bool   isGone = false // set on the chart bar it was invalidated
+    bool   weak   = false // the break came from the YM weakness rule
     bool   pndOn  = false // the bar that just closed is a PCP, verdict not in
     string pndWho = ""
 
@@ -590,19 +640,23 @@ f_taken(float lvl, int dir, float tkH, float tkL) =>
     na(lvl) ? false : dir == -1 ? tkH > lvl : tkL < lvl
 
 // Who took part in the divergence. ES and NQ are both in whenever they split;
-// YM is in only when its strength rule fired, and it drags in whichever of the
-// other two it was strong against.
-f_who(bool divP, bool divY, bool okN, bool okE, int dn, int de) =>
-    pN = divP or (divY and okN and dn < 0)
-    pE = divP or (divY and okE and de < 0)
-    w  = pN and pE and divY ? "ALL" : ""
+// YM is in when one of its two rules fired, and it drags in whichever of the
+// other two it moved against — the ones that were DOWN under strength, the
+// ones that were UP under weakness. The arrow on the YM token says which rule
+// it was, so the two never read alike.
+f_who(bool divP, bool divY, bool divW, bool okN, bool okE, int dn, int de) =>
+    pN  = divP or (divY and okN and dn < 0) or (divW and okN and dn > 0)
+    pE  = divP or (divY and okE and de < 0) or (divW and okE and de > 0)
+    ym  = divY or divW
+    tag = divW ? "↓" : divY ? "↑" : ""
+    w   = pN and pE and ym ? "ALL" + tag : ""
     if w == ""
         if pN
             w := "NQ"
         if pE
             w := w + (w == "" ? "" : " ") + "ES"
-        if divY
-            w := w + (w == "" ? "" : " ") + "YM"
+        if ym
+            w := w + (w == "" ? "" : " ") + "YM" + tag
     w
 
 // Levels of the assets that made the swing, kept out of the type so the state
@@ -620,7 +674,7 @@ var Lv v1w = Lv.new()
 // One step per closed bar of that timeframe. Invalidation is checked before
 // detection, so a level taken and a fresh swing on the same bar resolve in
 // the right order.
-f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y) =>
+f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y, bool allowW) =>
     s.isNew  := false
     s.isGone := false
     if not na(t) and t != s.lastT
@@ -646,8 +700,9 @@ f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y) =>
         qY  = i_use_ym and not na(y.d1) and (not i_ignore_doji or y.d1 != 0)
         qP  = qN and qE and n.d1 != e.d1
         qYm = qY and y.d1 > 0 and ((qE and e.d1 < 0) or (qN and n.d1 < 0))
-        s.pndOn  := qP or qYm
-        s.pndWho := s.pndOn ? f_who(qP, qYm, qN, qE, int(n.d1), int(e.d1)) : ""
+        qYw = allowW and qY and y.d1 < 0 and ((qE and e.d1 > 0) or (qN and n.d1 > 0)) and not qP and not qYm
+        s.pndOn  := qP or qYm or qYw
+        s.pndWho := s.pndOn ? f_who(qP, qYm, qYw, qN, qE, int(n.d1), int(e.d1)) : ""
 
         // ── 3. a new PSP on the swing bar, [2] ──
         okN = i_use_nq and not na(n.d2) and (not i_ignore_doji or n.d2 != 0)
@@ -656,14 +711,16 @@ f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y) =>
 
         divP = okN and okE and n.d2 != e.d2
         divY = okY and y.d2 > 0 and ((okE and e.d2 < 0) or (okN and n.d2 < 0))
+        divW = allowW and okY and y.d2 < 0 and ((okE and e.d2 > 0) or (okN and n.d2 > 0)) and not divP and not divY
 
-        if divP or divY
+        if divP or divY or divW
+            ymIn = divY or divW
             hiN = i_use_nq and n.swH
             hiE = i_use_es and e.swH
-            hiY = divY     and y.swH
+            hiY = ymIn     and y.swH
             loN = i_use_nq and n.swL
             loE = i_use_es and e.swL
-            loY = divY     and y.swL
+            loY = ymIn     and y.swL
 
             nHi = (hiN ? 1 : 0) + (hiE ? 1 : 0) + (hiY ? 1 : 0)
             nLo = (loN ? 1 : 0) + (loE ? 1 : 0) + (loY ? 1 : 0)
@@ -676,7 +733,8 @@ f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y) =>
 
                 s.live   := true
                 s.dir    := bear ? -1 : 1
-                s.who    := f_who(divP, divY, okN, okE, int(n.d2), int(e.d2))
+                s.weak   := divW
+                s.who    := f_who(divP, divY, divW, okN, okE, int(n.d2), int(e.d2))
                 s.isNew  := true
                 s.isGone := false
                 v.nq := gN ? (bear ? n.hi2 : n.lo2) : na
@@ -691,11 +749,13 @@ var MtfSt st1w = MtfSt.new()
 var MtfSt stCh = MtfSt.new()
 var Lv    vCh  = Lv.new()
 
-f_step(stCh, vCh, time, nCh, eCh, yCh)
-f_step(st1h, v1h, t1h, n1h, e1h, y1h)
-f_step(st4h, v4h, t4h, n4h, e4h, y4h)
-f_step(st1d, v1d, t1d, n1d, e1d, y1d)
-f_step(st1w, v1w, t1w, n1w, e1w, y1w)
+// 1H never gets the weakness rule; 4H and above always do; the chart's own
+// timeframe only when the chart itself is 4H or higher.
+f_step(stCh, vCh, time, nCh, eCh, yCh, ymwTfOk)
+f_step(st1h, v1h, t1h, n1h, e1h, y1h, false)
+f_step(st4h, v4h, t4h, n4h, e4h, y4h, i_ym_weak)
+f_step(st1d, v1d, t1d, n1d, e1d, y1d, i_ym_weak)
+f_step(st1w, v1w, t1w, n1w, e1w, y1w, i_ym_weak)
 
 // ══════════════════════════════════════════════════════════════
 //  THE LINE
@@ -713,7 +773,6 @@ f_step(st1w, v1w, t1w, n1w, e1w, y1w)
 //  no such problem — it is built from the chart's own series.
 // ══════════════════════════════════════════════════════════════
 
-chartSec = timeframe.in_seconds(timeframe.period)
 sh1h = timeframe.in_seconds("60")  > chartSec
 sh4h = timeframe.in_seconds("240") > chartSec
 sh1d = timeframe.in_seconds("D")   > chartSec
@@ -734,7 +793,7 @@ f_rec(MtfSt s, string nm) =>
     s.live ? nm + " " + f_arrow(s) + " " + s.who : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
 
 f_col(MtfSt s) =>
-    s.live ? (s.dir < 0 ? i_col_bear : i_col_bull) : i_col_pend
+    s.live ? (s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull) : i_col_pend
 
 r1w = sh1w ? f_rec(st1w, "1W") : ""
 r1d = sh1d ? f_rec(st1d, "1D") : ""
@@ -779,7 +838,7 @@ f_flash(FB n, FB e, FB y) =>
         if nHi > 0 or nLo > 0
             on  := true
             dir := nHi >= nLo ? -1 : 1
-            who := f_who(divP, divY, okN, okE, int(n.d2), int(e.d2))
+            who := f_who(divP, divY, false, okN, okE, int(n.d2), int(e.d2))
 
     // ── PCP: the bar that just closed, [1]. A PCP is only a disagreement of
     //    direction, so it needs no swing and no confirming bar — it is known
@@ -792,7 +851,7 @@ f_flash(FB n, FB e, FB y) =>
     qYm = qY and y.d1 > 0 and ((qE and e.d1 < 0) or (qN and n.d1 < 0))
 
     pOn  = qP or qYm
-    pWho = pOn ? f_who(qP, qYm, qN, qE, int(n.d1), int(e.d1)) : ""
+    pWho = pOn ? f_who(qP, qYm, false, qN, qE, int(n.d1), int(e.d1)) : ""
     [on, dir, who, pOn, pWho]
 
 [on15, dir15, who15, pcp15, pwho15] = f_flash(n15, e15, y15)
@@ -950,7 +1009,7 @@ f_stat(MtfSt s, bool shown) =>
     not shown ? "▶" : s.live ? f_arrow(s) + " " + s.who : s.pndOn ? "◦ " + s.pndWho : "—"
 
 f_statCol(MtfSt s, bool shown) =>
-    not shown or not s.live ? i_col_neut : s.dir < 0 ? i_col_bear : i_col_bull
+    not shown or not s.live ? i_col_neut : s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull
 
 if barstate.islast and i_pnl_on
     if i_pnl_pad > 0
