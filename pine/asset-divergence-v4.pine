@@ -1,14 +1,21 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.12
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.13
 // Pine Script V5
 //
-// v5.12 — the weakness signal is the same colour, only faded:
-//  v5.11 gave it a third hue and "↑"/"↓" tags on the asset list. Both were
-//  wrong for what it is. A weakness break is not a different KIND of signal
-//  that needs its own key; it is the same signal carrying less weight, coming
-//  off the smallest of the three indices. A third hue says "new category" and
-//  the tags just made the line longer to read on a phone.
-//  Same bull/bear colour, dimmed. Weaker signal, weaker ink, nothing to learn.
+// v5.13 — a hue for YM weakness, because dimness is already spoken for:
+//  v5.12 drew it in the same colour, faded. That collides: a faded marker
+//  already means "the swing was on another asset, not the one on your chart",
+//  so two different things would have arrived as the same visual signal and
+//  a faded-and-hollow marker would have been unreadable. Weakness goes back to
+//  its own colour, amber by default — hue says WHICH RULE fired, dimness still
+//  says WHERE the swing was, and the two stay independent.
+//  The "↑"/"↓" tags from v5.11 do not come back; the colour is enough and the
+//  line stays short.
+//
+//  Worth stating since it is the other half of the question: YM weakness never
+//  overrides a normal divergence. It is tested only after ES-vs-NQ and YM
+//  strength have both come up empty, so a bar where ES and NQ already disagree
+//  is an ordinary break in ordinary colours, whatever YM did on it.
 //
 // v5.11 — YM weakness becomes a category of its own:
 //  Until now YM counted only when it showed STRENGTH — up while ES and/or NQ
@@ -196,7 +203,7 @@ i_use_ym   = input.bool(true,  title="כלול YM",
      tooltip="חוזקה: YM נסגר בעלייה בזמן ש-ES ו/או NQ נסגרים בירידה.",
      group=grp_assets)
 i_ym_weak  = input.bool(true, title="כלול גם חולשת YM (4 שעות ומעלה)",
-     tooltip="YM נסגר בירידה בזמן ש-ES ו-NQ נסגרים בעלייה. אות חלש יותר, ולכן מצויר באותו צבע רק דהוי.\nנספר רק כשאין כבר דיברגנס אחר — אם ES ו-NQ ממילא חלוקים, זו שבירה רגילה.\nפעיל רק על נרות של 4 שעות ומעלה; ב-1H ומטה חולשה של מדד בודד היא רעש.",
+     tooltip="YM נסגר בירידה בזמן ש-ES ו-NQ נסגרים בעלייה. מצויר בצבע נפרד.\nנספר רק כשאין כבר דיברגנס אחר — אם ES ו-NQ חלוקים ביניהם, זו שבירה רגילה בצבע רגיל, גם אם YM ירד.\nפעיל רק על נרות של 4 שעות ומעלה; ב-1H ומטה חולשה של מדד בודד היא רעש.",
      group=grp_assets)
 i_settle   = input.string("כבוי — כמו הגרף", title="Settlement כסגירה יומית",
      options=["כבוי — כמו הגרף", "דלוק", "ברירת המחדל של הסימבול"],
@@ -215,8 +222,8 @@ i_tf_1w    = input.bool(true,  title="שבועי",  group=grp_tf)
 grp_col    = "═══  סימונים וצבעים  ═══"
 i_col_bull = input.color(color.new(#00e5ff, 0), title="אות שורי", group=grp_col)
 i_col_bear = input.color(color.new(#ff1744, 0), title="אות דובי", group=grp_col)
-i_weak_fade = input.int(55, title="עמעום אות חולשת YM", minval=20, maxval=90,
-     tooltip="חולשת YM מצוירת באותו צבע של אות רגיל, רק דהוי. ככל שהמספר גבוה יותר — חלש יותר.",
+i_col_weak = input.color(color.new(#ff9100, 0), title="אות חולשת YM",
+     tooltip="צבע נפרד, לא עמעום — עמעום כבר תפוס לסימון שהסווינג קרה בנכס אחר.\nכל סימון בצבע הזה הגיע מחולשת YM ולא מדיברגנס רגיל.",
      group=grp_col)
 i_ext_transp = input.int(45, title="עמעום סימון של נכס אחר", minval=0, maxval=90,
      tooltip="שקיפות הסימון החלול, שמצויר כשהסווינג קרה בנכס אחר ולא בסימבול שעל הגרף.",
@@ -414,18 +421,15 @@ psp_bull_ext = psp_base and ext_lo and not own_lo
 // ══════════════════════════════════════════════════════════════
 
 // plotchar takes a series colour, so the weakness signal needs no extra plots
-// — the same four markers simply come out faded when bar[1]'s divergence came
-// off YM weakness. color.new REPLACES transparency rather than adding to it,
-// so the hollow marker takes whichever of the two fades is the stronger.
+// — the same four markers simply come out amber when bar[1]'s divergence came
+// off YM weakness. Two axes that never interfere: the HUE says which rule
+// fired, the transparency says whether the swing was on the chart's own asset.
 wk1 = div_ymw[1]
 
-trOwn = wk1 ? i_weak_fade : 0
-trExt = math.max(i_ext_transp, trOwn)
-
-c_bear_own = color.new(i_col_bear, trOwn)
-c_bull_own = color.new(i_col_bull, trOwn)
-c_bear_ext = color.new(i_col_bear, trExt)
-c_bull_ext = color.new(i_col_bull, trExt)
+c_bear_own = wk1 ? i_col_weak : i_col_bear
+c_bull_own = wk1 ? i_col_weak : i_col_bull
+c_bear_ext = color.new(c_bear_own, i_ext_transp)
+c_bull_ext = color.new(c_bull_own, i_ext_transp)
 
 plotchar(psp_bear_own ? 1 : na, title="PSP Bear — Own Asset",
      char="▴", location=location.abovebar, color=c_bear_own,
@@ -798,7 +802,7 @@ f_rec(MtfSt s, string nm) =>
     s.live ? nm + " " + f_arrow(s) + " " + s.who : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
 
 f_col(MtfSt s) =>
-    s.live ? color.new(s.dir < 0 ? i_col_bear : i_col_bull, s.weak ? i_weak_fade : 0) : i_col_pend
+    s.live ? (s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull) : i_col_pend
 
 r1w = sh1w ? f_rec(st1w, "1W") : ""
 r1d = sh1d ? f_rec(st1d, "1D") : ""
@@ -1014,7 +1018,7 @@ f_stat(MtfSt s, bool shown) =>
     not shown ? "▶" : s.live ? f_arrow(s) + " " + s.who : s.pndOn ? "◦ " + s.pndWho : "—"
 
 f_statCol(MtfSt s, bool shown) =>
-    not shown or not s.live ? i_col_neut : color.new(s.dir < 0 ? i_col_bear : i_col_bull, s.weak ? i_weak_fade : 0)
+    not shown or not s.live ? i_col_neut : s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull
 
 if barstate.islast and i_pnl_on
     if i_pnl_pad > 0
