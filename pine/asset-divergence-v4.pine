@@ -1,12 +1,19 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.11
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.12
 // Pine Script V5
+//
+// v5.12 — the weakness signal is the same colour, only faded:
+//  v5.11 gave it a third hue and "↑"/"↓" tags on the asset list. Both were
+//  wrong for what it is. A weakness break is not a different KIND of signal
+//  that needs its own key; it is the same signal carrying less weight, coming
+//  off the smallest of the three indices. A third hue says "new category" and
+//  the tags just made the line longer to read on a phone.
+//  Same bull/bear colour, dimmed. Weaker signal, weaker ink, nothing to learn.
 //
 // v5.11 — YM weakness becomes a category of its own:
 //  Until now YM counted only when it showed STRENGTH — up while ES and/or NQ
 //  were down. The mirror case, YM DOWN while the others are up, was simply
 //  not an event, so a day where the Dow alone refused to follow left no trace.
-//  It is an event now, with three deliberate constraints:
 //    - It only fires when nothing else would have. If ES and NQ are already
 //      split, that split is the signal and YM does not reshape it; weakness is
 //      read only off bars the other two agreed on, which is exactly the
@@ -14,11 +21,6 @@
 //    - 4H and above only. Below that a single index disagreeing is noise, so
 //      the 4H/1D/1W engines carry it, the chart's own timeframe carries it
 //      only on a 4H-or-higher chart, and 1H / 15m / 5m never do.
-//    - It is marked as a DIFFERENT break, not folded in with the rest: its own
-//      colour on the bars and in the line (amber by default), and a direction
-//      tag on the asset list — "YM↑" for strength, "YM↓" for weakness, and
-//      "ALL↑" / "ALL↓" when all three took part. The tag says which rule fired
-//      without a legend to remember.
 //  No new request.security: still 138 series across 21 calls.
 //
 // v5.10 — the breaks line was still the thing being read:
@@ -191,10 +193,10 @@ i_sym_ym   = input.symbol("YM1!", title="סימבול YM", group=grp_assets)
 i_use_nq   = input.bool(true,  title="כלול NQ", group=grp_assets)
 i_use_es   = input.bool(true,  title="כלול ES", group=grp_assets)
 i_use_ym   = input.bool(true,  title="כלול YM",
-     tooltip="חוזקה: YM נסגר בעלייה בזמן ש-ES ו/או NQ נסגרים בירידה. מסומן YM↑.",
+     tooltip="חוזקה: YM נסגר בעלייה בזמן ש-ES ו/או NQ נסגרים בירידה.",
      group=grp_assets)
 i_ym_weak  = input.bool(true, title="כלול גם חולשת YM (4 שעות ומעלה)",
-     tooltip="YM נסגר בירידה בזמן ש-ES ו-NQ נסגרים בעלייה. מסומן YM↓ ובצבע נפרד.\nנספר רק כשאין כבר דיברגנס אחר — אם ES ו-NQ ממילא חלוקים, זו שבירה רגילה.\nפעיל רק על נרות של 4 שעות ומעלה; ב-1H ומטה חולשה של מדד בודד היא רעש.",
+     tooltip="YM נסגר בירידה בזמן ש-ES ו-NQ נסגרים בעלייה. אות חלש יותר, ולכן מצויר באותו צבע רק דהוי.\nנספר רק כשאין כבר דיברגנס אחר — אם ES ו-NQ ממילא חלוקים, זו שבירה רגילה.\nפעיל רק על נרות של 4 שעות ומעלה; ב-1H ומטה חולשה של מדד בודד היא רעש.",
      group=grp_assets)
 i_settle   = input.string("כבוי — כמו הגרף", title="Settlement כסגירה יומית",
      options=["כבוי — כמו הגרף", "דלוק", "ברירת המחדל של הסימבול"],
@@ -213,8 +215,8 @@ i_tf_1w    = input.bool(true,  title="שבועי",  group=grp_tf)
 grp_col    = "═══  סימונים וצבעים  ═══"
 i_col_bull = input.color(color.new(#00e5ff, 0), title="אות שורי", group=grp_col)
 i_col_bear = input.color(color.new(#ff1744, 0), title="אות דובי", group=grp_col)
-i_col_weak = input.color(color.new(#ff9100, 0), title="אות חולשת YM (YM↓)",
-     tooltip="הצבע השלישי. כל סימון בצבע הזה הגיע מהכלל של חולשת YM ולא מדיברגנס רגיל.",
+i_weak_fade = input.int(55, title="עמעום אות חולשת YM", minval=20, maxval=90,
+     tooltip="חולשת YM מצוירת באותו צבע של אות רגיל, רק דהוי. ככל שהמספר גבוה יותר — חלש יותר.",
      group=grp_col)
 i_ext_transp = input.int(45, title="עמעום סימון של נכס אחר", minval=0, maxval=90,
      tooltip="שקיפות הסימון החלול, שמצויר כשהסווינג קרה בנכס אחר ולא בסימבול שעל הגרף.",
@@ -411,15 +413,19 @@ psp_bull_ext = psp_base and ext_lo and not own_lo
 //  offset = -1 places the marker on bar[1] — the bar that was resolved.
 // ══════════════════════════════════════════════════════════════
 
-// plotchar takes a series colour, so the weakness category needs no extra
-// plots — the same four markers simply come out amber when bar[1]'s divergence
-// came from the weakness rule.
+// plotchar takes a series colour, so the weakness signal needs no extra plots
+// — the same four markers simply come out faded when bar[1]'s divergence came
+// off YM weakness. color.new REPLACES transparency rather than adding to it,
+// so the hollow marker takes whichever of the two fades is the stronger.
 wk1 = div_ymw[1]
 
-c_bear_own = wk1 ? i_col_weak : i_col_bear
-c_bull_own = wk1 ? i_col_weak : i_col_bull
-c_bear_ext = color.new(c_bear_own, i_ext_transp)
-c_bull_ext = color.new(c_bull_own, i_ext_transp)
+trOwn = wk1 ? i_weak_fade : 0
+trExt = math.max(i_ext_transp, trOwn)
+
+c_bear_own = color.new(i_col_bear, trOwn)
+c_bull_own = color.new(i_col_bull, trOwn)
+c_bear_ext = color.new(i_col_bear, trExt)
+c_bull_ext = color.new(i_col_bull, trExt)
 
 plotchar(psp_bear_own ? 1 : na, title="PSP Bear — Own Asset",
      char="▴", location=location.abovebar, color=c_bear_own,
@@ -642,21 +648,20 @@ f_taken(float lvl, int dir, float tkH, float tkL) =>
 // Who took part in the divergence. ES and NQ are both in whenever they split;
 // YM is in when one of its two rules fired, and it drags in whichever of the
 // other two it moved against — the ones that were DOWN under strength, the
-// ones that were UP under weakness. The arrow on the YM token says which rule
-// it was, so the two never read alike.
+// ones that were UP under weakness. Which of the two it was is carried by the
+// colour, not by the text, so the text stays as short as it always was.
 f_who(bool divP, bool divY, bool divW, bool okN, bool okE, int dn, int de) =>
-    pN  = divP or (divY and okN and dn < 0) or (divW and okN and dn > 0)
-    pE  = divP or (divY and okE and de < 0) or (divW and okE and de > 0)
-    ym  = divY or divW
-    tag = divW ? "↓" : divY ? "↑" : ""
-    w   = pN and pE and ym ? "ALL" + tag : ""
+    pN = divP or (divY and okN and dn < 0) or (divW and okN and dn > 0)
+    pE = divP or (divY and okE and de < 0) or (divW and okE and de > 0)
+    ym = divY or divW
+    w  = pN and pE and ym ? "ALL" : ""
     if w == ""
         if pN
             w := "NQ"
         if pE
             w := w + (w == "" ? "" : " ") + "ES"
         if ym
-            w := w + (w == "" ? "" : " ") + "YM" + tag
+            w := w + (w == "" ? "" : " ") + "YM"
     w
 
 // Levels of the assets that made the swing, kept out of the type so the state
@@ -793,7 +798,7 @@ f_rec(MtfSt s, string nm) =>
     s.live ? nm + " " + f_arrow(s) + " " + s.who : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
 
 f_col(MtfSt s) =>
-    s.live ? (s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull) : i_col_pend
+    s.live ? color.new(s.dir < 0 ? i_col_bear : i_col_bull, s.weak ? i_weak_fade : 0) : i_col_pend
 
 r1w = sh1w ? f_rec(st1w, "1W") : ""
 r1d = sh1d ? f_rec(st1d, "1D") : ""
@@ -1009,7 +1014,7 @@ f_stat(MtfSt s, bool shown) =>
     not shown ? "▶" : s.live ? f_arrow(s) + " " + s.who : s.pndOn ? "◦ " + s.pndWho : "—"
 
 f_statCol(MtfSt s, bool shown) =>
-    not shown or not s.live ? i_col_neut : s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull
+    not shown or not s.live ? i_col_neut : color.new(s.dir < 0 ? i_col_bear : i_col_bull, s.weak ? i_weak_fade : 0)
 
 if barstate.islast and i_pnl_on
     if i_pnl_pad > 0
