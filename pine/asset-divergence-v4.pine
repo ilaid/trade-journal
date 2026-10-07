@@ -1,6 +1,19 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.13
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.14
 // Pine Script V5
+//
+// v5.14 — a timeframe remembers more than one break:
+//  Each timeframe held exactly ONE break, and a new PSP overwrote it. So a
+//  fresh PSP that got taken straight away wiped out an older one whose level
+//  had never been touched, and the timeframe went blank — or worse, showed a
+//  direction that no longer matched anything on the chart.
+//  Each timeframe now keeps a small stack of breaks, newest first. Every close
+//  tests EVERY stored break against its own level and its own direction, and
+//  drops the ones that were taken; the one on display is simply the newest
+//  survivor. Take out the new one and the previous one comes back, exactly as
+//  long as it is still untaken. Depth is an input, default 5.
+//  The levels moved into the stacked break where they belong — one break, one
+//  set of levels — so the separate Lv type is gone.
 //
 // v5.13 — a hue for YM weakness, because dimness is already spoken for:
 //  v5.12 drew it in the same colour, faded. That collides: a faded marker
@@ -245,6 +258,9 @@ i_mtf_h    = input.string("שמאל", title="צד השורה",
      options=["שמאל", "מרכז", "ימין"], group=grp_mtf)
 i_mtf_pad  = input.int(0, title="הרחקת השורה מהקצה (שורות)", minval=0, maxval=12,
      tooltip="מוסיף שורות ריקות בין השורה לקצה הגרף, כדי להרים אותה מעל שורה של אינדיקטור אחר שיושב באותה פינה.",
+     group=grp_mtf)
+i_depth    = input.int(5, title="כמה שבירות לזכור לכל מסגרת", minval=1, maxval=10,
+     tooltip="שבירה חדשה לא מוחקת את הקודמת. אם החדשה נלקחת, חוזרים להצגת הקודמת — כל עוד הרמה שלה עצמה לא נלקחה.\nהמספר הוא כמה אחורה לשמור.",
      group=grp_mtf)
 i_inv_wick = input.bool(false, title="בטל שבירה לפי פתיל",
      tooltip="כבוי (ברירת מחדל): שבירה מתה כשנר של אותה מסגרת נסגר מעבר לרמת הסווינג.\nדלוק: מספיק פתיל מעבר לרמה.",
@@ -668,38 +684,40 @@ f_who(bool divP, bool divY, bool divW, bool okN, bool okE, int dn, int de) =>
             w := w + (w == "" ? "" : " ") + "YM"
     w
 
-// Levels of the assets that made the swing, kept out of the type so the state
-// stays about the break and these stay about the price test.
-type Lv
-    float nq = na
-    float es = na
-    float ym = na
-
-var Lv v1h = Lv.new()
-var Lv v4h = Lv.new()
-var Lv v1d = Lv.new()
-var Lv v1w = Lv.new()
+// One stored break: the direction it was taken in, who made it, and the level
+// each asset has to defend. The levels live here rather than beside the state
+// because every break now defends its own — that is the whole point of the
+// stack below.
+type Brk
+    int    dir  = 0
+    string who  = ""
+    bool   weak = false
+    float  nq   = na
+    float  es   = na
+    float  ym   = na
 
 // One step per closed bar of that timeframe. Invalidation is checked before
 // detection, so a level taken and a fresh swing on the same bar resolve in
 // the right order.
-f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y, bool allowW) =>
+f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW) =>
     s.isNew  := false
     s.isGone := false
     if not na(t) and t != s.lastT
         s.lastT := t
+        hadLive = array.size(st) > 0
 
-        // ── 1. was the level taken by the bar that just closed? ──
-        if s.live
-            tkN = f_taken(v.nq, s.dir, n.tkH, n.tkL)
-            tkE = f_taken(v.es, s.dir, e.tkH, e.tkL)
-            tkY = f_taken(v.ym, s.dir, y.tkH, y.tkL)
-            if tkN or tkE or tkY
-                s.live   := false
-                s.isGone := true
-                v.nq := na
-                v.es := na
-                v.ym := na
+        // ── 1. drop EVERY stored break whose level the closing bar took.
+        //       Each is judged against its own level and its own direction,
+        //       so taking out the newest leaves an older, untouched one
+        //       standing — which is the one that then goes back on display.
+        i = 0
+        while i < array.size(st)
+            b = array.get(st, i)
+            gone = f_taken(b.nq, b.dir, n.tkH, n.tkL) or f_taken(b.es, b.dir, e.tkH, e.tkL) or f_taken(b.ym, b.dir, y.tkH, y.tkL)
+            if gone
+                array.remove(st, i)
+            else
+                i += 1
 
         // ── 2. the bar that just closed, [1]: a PCP whose swing verdict
         //       needs the NEXT close. This is the grey "maybe" state, and it
@@ -740,15 +758,26 @@ f_step(MtfSt s, Lv v, int t, AB n, AB e, AB y, bool allowW) =>
                 gE   = bear ? hiE : loE
                 gY   = bear ? hiY : loY
 
-                s.live   := true
-                s.dir    := bear ? -1 : 1
-                s.weak   := divW
-                s.who    := f_who(divP, divY, divW, okN, okE, int(n.d2), int(e.d2))
-                s.isNew  := true
-                s.isGone := false
-                v.nq := gN ? (bear ? n.hi2 : n.lo2) : na
-                v.es := gE ? (bear ? e.hi2 : e.lo2) : na
-                v.ym := gY ? (bear ? y.hi2 : y.lo2) : na
+                array.unshift(st, Brk.new(bear ? -1 : 1,
+                     f_who(divP, divY, divW, okN, okE, int(n.d2), int(e.d2)),
+                     divW,
+                     gN ? (bear ? n.hi2 : n.lo2) : na,
+                     gE ? (bear ? e.hi2 : e.lo2) : na,
+                     gY ? (bear ? y.hi2 : y.lo2) : na))
+                while array.size(st) > i_depth
+                    array.pop(st)
+                s.isNew := true
+
+        // ── 4. what is on display: the newest survivor, or nothing. dir, who
+        //       and weak are left alone when the stack empties, so the
+        //       "broken" alert can still name what it was.
+        s.live := array.size(st) > 0
+        if s.live
+            top = array.get(st, 0)
+            s.dir  := top.dir
+            s.who  := top.who
+            s.weak := top.weak
+        s.isGone := hadLive and not s.live
     s.live
 
 var MtfSt st1h = MtfSt.new()
@@ -756,15 +785,21 @@ var MtfSt st4h = MtfSt.new()
 var MtfSt st1d = MtfSt.new()
 var MtfSt st1w = MtfSt.new()
 var MtfSt stCh = MtfSt.new()
-var Lv    vCh  = Lv.new()
+
+// One stack per timeframe, newest break first.
+var array<Brk> b1h = array.new<Brk>()
+var array<Brk> b4h = array.new<Brk>()
+var array<Brk> b1d = array.new<Brk>()
+var array<Brk> b1w = array.new<Brk>()
+var array<Brk> bCh = array.new<Brk>()
 
 // 1H never gets the weakness rule; 4H and above always do; the chart's own
 // timeframe only when the chart itself is 4H or higher.
-f_step(stCh, vCh, time, nCh, eCh, yCh, ymwTfOk)
-f_step(st1h, v1h, t1h, n1h, e1h, y1h, false)
-f_step(st4h, v4h, t4h, n4h, e4h, y4h, i_ym_weak)
-f_step(st1d, v1d, t1d, n1d, e1d, y1d, i_ym_weak)
-f_step(st1w, v1w, t1w, n1w, e1w, y1w, i_ym_weak)
+f_step(stCh, bCh, time, nCh, eCh, yCh, ymwTfOk)
+f_step(st1h, b1h, t1h, n1h, e1h, y1h, false)
+f_step(st4h, b4h, t4h, n4h, e4h, y4h, i_ym_weak)
+f_step(st1d, b1d, t1d, n1d, e1d, y1d, i_ym_weak)
+f_step(st1w, b1w, t1w, n1w, e1w, y1w, i_ym_weak)
 
 // ══════════════════════════════════════════════════════════════
 //  THE LINE
