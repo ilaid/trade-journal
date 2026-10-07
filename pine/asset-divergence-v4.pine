@@ -37,164 +37,30 @@
 //  strength have both come up empty, so a bar where ES and NQ already disagree
 //  is an ordinary break in ordinary colours, whatever YM did on it.
 //
-// v5.11 — YM weakness becomes a category of its own:
-//  Until now YM counted only when it showed STRENGTH — up while ES and/or NQ
-//  were down. The mirror case, YM DOWN while the others are up, was simply
-//  not an event, so a day where the Dow alone refused to follow left no trace.
-//    - It only fires when nothing else would have. If ES and NQ are already
-//      split, that split is the signal and YM does not reshape it; weakness is
-//      read only off bars the other two agreed on, which is exactly the
-//      "everything up except YM" picture it is meant to catch.
-//    - 4H and above only. Below that a single index disagreeing is noise, so
-//      the 4H/1D/1W engines carry it, the chart's own timeframe carries it
-//      only on a 4H-or-higher chart, and 1H / 15m / 5m never do.
-//  No new request.security: still 138 series across 21 calls.
-//
-// v5.10 — the breaks line was still the thing being read:
-//  v5.9 gave the fast signal a box but left the CHART'S OWN timeframe in the
-//  breaks line, which is where "5m ▼ ALL" was coming from all along — a
-//  standing 5m break, in the line, visible only while sitting on a 5m chart.
-//  That is the line v5.4 added for a daily chart, and below 1H it does the
-//  opposite of what this indicator is for.
-//    - The line is 1H and above, full stop. The chart's own timeframe joins it
-//      only when the chart is 1H or higher; on 1m/5m/15m it is dropped, and
-//      the MTF alert for it is dropped with it, since the fast alert covers
-//      those now.
-//    - The box no longer skips its own chart. A 5m PSP shows in the box on a
-//      5m chart too — same notice everywhere, instead of a different shape of
-//      answer depending on where you are standing.
-//    - The box holds its place when nothing is live, "15m — / 5m —", so it can
-//      be seen to be alive. One switch turns that off once it has been.
-//  NOTE: alert() writes nothing by itself. TradingView only delivers it once
-//  an alert is created on the indicator with the condition "Any alert()
-//  function call" — the script cannot create that for you.
-//
-// v5.9 — the 5m/15m heads-up becomes an actual notice:
-//  It was a cell in the breaks line, in parentheses, in the same small type as
-//  everything beside it — so it read as one more entry in a list rather than
-//  as something that just happened, and in practice it was never seen. It now
-//  has a box of its own, with its own corner, its own text size and a tinted
-//  background, and it is out of the breaks line entirely.
-//    - PCP too, not only PSP. A PCP needs no swing, so it is known one bar
-//      earlier than the PSP on the same candle; it shows grey with ◦ against
-//      the coloured ⚡ of a PSP. It is much the more common of the two, hence
-//      its own switch.
-//    - A real alert() fires on a fast PSP, so TradingView can push it.
-//  Still 138 series: f_fast gained the last closed bar's direction and paid
-//  for it by packing its two swing booleans into one number (+2 high, +1 low,
-//  so 3 is both).
-//
-// v5.8 — the daily divergence really was being missed, and this is why:
-//  CME futures default to using the SETTLEMENT price as the daily close.
-//  A chart can turn that off per symbol, and this one is turned off — but
-//  request.security() knows nothing about a chart's per-symbol settings, so
-//  it kept reading the settlement close while the bars on screen showed the
-//  regular one. On a day that settles the other side of its open, the script
-//  therefore read "up" for a candle the eye reads as down, no divergence
-//  existed as far as it was concerned, and nothing was drawn. Swapping ES1!
-//  for MES1! changed nothing because the default is the same on both.
-//  Every symbol now goes through ticker.modify(settlement_as_close = ...)
-//  before the request, defaulting to OFF so the script reads what the chart
-//  draws. The debug rows print the open and close actually read, so the two
-//  can be compared against the chart directly.
-//
-// v5.7:
-//  - The chart timeframe's row in the panel reports nothing while the same
-//    engine reports a live break on 1W, so the fault is somewhere on the
-//    chart-timeframe path alone. Two guesses at it from reading the code
-//    were both wrong, so the debug readout moves from the end of the line —
-//    where it was pushed off a phone screen — into the panel, and prints the
-//    raw values the engine is actually working from.
-//  - The 5m/15m heads-up is parenthesised, "(5m ▲ ALL)". It was reading as
-//    the same kind of thing as "1D ▲ NQ ES" when it is not: one is a
-//    standing break, the other a moment. Brackets say "aside" without
-//    adding a symbol to remember.
-//
-// v5.6 — fixes a desync v5.5 introduced:
-//  v5.5 moved each timeframe's clock out of the request and onto the
-//  built-in time_close(tf), to save a series. That is two different sources
-//  updating independently: time_close() comes off the chart's own bar times,
-//  the data comes off the request. The engine steps ONCE per timeframe bar,
-//  on the clock — so if the clock advanced a bar before the data did, the
-//  step ran on stale values and then did not run again until the next bar.
-//  On a daily timeframe that leaves the state a day behind and yesterday's
-//  divergence is never seen at all.
-//  The clock goes back inside the tuple, where it advances in lockstep with
-//  the data it times. To pay for it without returning to the memory limit,
-//  close[1]/high[1]/low[1] collapse into the two values the "taken" test
-//  actually compares, chosen inside the request. Still 138 series.
-//  Also adds a debug switch that prints the directions the script actually
-//  read, so a disagreement with the chart can be seen instead of guessed at.
-//
-// v5.5 — fixes "Memory limits exceeded", which v5.4 caused:
-//  v5.4 added six more request.security calls, each returning an eleven
-//  element tuple, taking the script from 144 stored series to 210. That is
-//  the trap this file warns about below: it compiles clean and simply
-//  refuses to load. The fix is to stop hauling raw numbers across and do
-//  the work inside the request instead.
-//    - The timeframe clock is now time_close(tf), a built-in that needs NO
-//      request.security at all. One series saved per asset per timeframe.
-//    - Candle direction is computed inside the request: one series instead
-//      of the open and close it was derived from.
-//    - The three-bar swing is computed inside the request: one boolean
-//      instead of the three highs (or lows) it was derived from.
-//    - The fast 5m/15m heads-up carries three series per asset instead of
-//      eleven. It keeps no state and tests no levels, so it needs neither
-//      the levels nor the clock.
-//  Result: 138 stored series, below the 144 that loaded fine before v5.4.
-//
-// v5.4:
-//  - The CHART'S OWN timeframe is back in the line. Leaving it out was a
-//    mistake: an undecided PCP shows on the bars only as a tiny grey dot and
-//    a PCP that never became a swing shows nothing at all, so on a daily
-//    chart the daily state was invisible everywhere. It costs no extra
-//    request.security — it is built from the chart series already fetched,
-//    so there is no sampling problem either.
-//  - Fast heads-up for 5m and 15m, in the SAME line rather than a second row.
-//    It does NOT go through the carried-state engine; it is computed directly
-//    on the last bar, which is exactly what lets it read a timeframe below the
-//    chart's without the once-per-chart-bar sampling ruining it. It stands
-//    until the next close on its own timeframe, and skips the chart's own
-//    timeframe, which is already drawn on the bars.
-//
-// v5.3:
-//  - The line lists EVERY standing break from 1H / 4H / 1D / 1W side by
-//    side again, not just the most recent one. The timeframe gate is
-//    unchanged: on a 1H chart 1H is absent, because it is drawn on the bars.
-//  - Each timeframe owns one cell with three states — a standing break in
-//    its direction's colour, else the grey pending bar, else nothing.
-//  - "live" is now a flag of its own instead of dir == 0, so dir and who
-//    survive an invalidation and the "broken" alert can still name what broke.
-//
-// v5.2:
-//  - The markers on the bars use the small triangles ▴ ▾ / ▵ ▿ instead of the
-//    full-height ▲ ▼ / △ ▽. Same family, about half the height, and the
-//    solid-vs-hollow distinction survives intact. size.tiny is kept on
-//    purpose: size.auto would shrink them to nothing when zoomed out.
-//
-// v5.1 — the line says what happened and who was in it, nothing else:
-//  - A record is "<TF> <arrow> <who>". "who" is the assets that took part in
-//    the DIVERGENCE, or "ALL" when all three did. The P/Y/B source letter is
-//    gone: the list of names already says where the divergence came from.
-//  - No timestamp. The line reports that a break happened, not when.
-//  - No timer and no "broken" text. A break whose level is taken simply
-//    disappears.
-//  - Grey state: a higher-timeframe bar that closed as a PCP
-//    but whose swing verdict is not in yet. Same idea as the grey dot on the
-//    bars, and it clears itself the same way — the next close either promotes
-//    it to a coloured break or drops it.
-//
-// v5.0:
-//  - ONE slot instead of one record per timeframe.
-//
-// v4.x history:
-//  - YM only creates a divergence when it shows STRENGTH (up while ES and/or
-//    NQ are down). ES vs NQ: any direction mismatch counts.
-//  - Swing detected on EVERY included asset: solid ▴/▾ when the swing is on
-//    the chart symbol, hollow ▵/▿ when it is on another asset only.
-//  - Pending marker (•) while a PCP bar's swing verdict is not in yet.
-//  - Weekly is a full category, on the chart and in the line.
-//  - Symbols are three input.symbol fields, so only three contracts load.
+// v5.11 — YM weakness is a category at all: YM DOWN while the others are up,
+//  tested only after ES-vs-NQ and YM strength both come up empty, 4H and above.
+// v5.10 — the breaks line is 1H and above, full stop; the chart's own
+//  timeframe joins it only when the chart is 1H or higher.
+// v5.9 — the 5m/15m heads-up gets a box of its own, PCP included, plus a real
+//  alert(). NOTE: alert() delivers nothing until an alert is created on the
+//  indicator in TradingView with the condition "Any alert() function call".
+// v5.8 — CME futures default to the SETTLEMENT price as the daily close and a
+//  chart's per-symbol override never reaches request.security, so the script
+//  was reading a different candle than the one on screen. ticker.modify fixes
+//  it; the setting defaults to OFF, matching a chart with the box unticked.
+// v5.6 — each timeframe's clock rides INSIDE its request tuple. Timing it from
+//  the built-in time_close(tf) desynchronises it from the data it times.
+// v5.5 — "Memory limits exceeded" is a LOAD-time failure that compiles clean.
+//  Every tuple element of every request.security is a full series held over
+//  the chart's history, and the budget is shared with every other indicator on
+//  the chart. 210 series failed; this file holds 138 across 21 calls by
+//  reducing direction and swing INSIDE each request. Keep the tuples small.
+// v5.4..v5.0 — the chart's own timeframe needs no request at all; the line
+//  lists every standing break side by side; "live" is a flag of its own so dir
+//  and who survive an invalidation.
+// v4.x — YM strength rule; swings detected on every included asset (solid
+//  marker = swing on the chart symbol, hollow = on another asset only);
+//  pending dot; weekly as a full category; three input.symbol fields.
 
 //@version=5
 indicator("Asset Divergence | PCP & PSP v5", shorttitle="ADI v5",
