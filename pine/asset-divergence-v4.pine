@@ -1,6 +1,13 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.14
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.15
 // Pine Script V5
+//
+// v5.15 — a wick through the level kills the break:
+//  The switch was already there and defaulted to the other reading: only a
+//  CLOSE beyond the swing level counted, so a bar that pierced the level and
+//  came back left the break standing. The level is the thing being defended,
+//  and touching it is taking it. Default flipped; the old behaviour is one
+//  checkbox away.
 //
 // v5.14 — a timeframe remembers more than one break:
 //  Each timeframe held exactly ONE break, and a new PSP overwrote it. So a
@@ -262,8 +269,8 @@ i_mtf_pad  = input.int(0, title="הרחקת השורה מהקצה (שורות)",
 i_depth    = input.int(5, title="כמה שבירות לזכור לכל מסגרת", minval=1, maxval=10,
      tooltip="שבירה חדשה לא מוחקת את הקודמת. אם החדשה נלקחת, חוזרים להצגת הקודמת — כל עוד הרמה שלה עצמה לא נלקחה.\nהמספר הוא כמה אחורה לשמור.",
      group=grp_mtf)
-i_inv_wick = input.bool(false, title="בטל שבירה לפי פתיל",
-     tooltip="כבוי (ברירת מחדל): שבירה מתה כשנר של אותה מסגרת נסגר מעבר לרמת הסווינג.\nדלוק: מספיק פתיל מעבר לרמה.",
+i_inv_wick = input.bool(true, title="בטל שבירה לפי פתיל",
+     tooltip="דלוק (ברירת מחדל): מספיק שפתיל חוצה את רמת הסווינג כדי שהשבירה תפסיק להיחשב.\nכבוי: רק נר שנסגר מעבר לרמה מבטל, ופתיל שחורג וחוזר לא סופר.",
      group=grp_mtf)
 i_pnl_on   = input.bool(false, title="הצג פאנל מסגרות",
      tooltip="תצוגה מלאה: שורה לכל מסגרת עם השבירה החיה שלה. משלימה את השורה, שמראה רק את האחרונה.",
