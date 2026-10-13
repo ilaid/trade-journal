@@ -1,6 +1,14 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.15
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.16
 // Pine Script V5
+//
+// v5.16 — the debug panel shows the stacks themselves:
+//  "the line says up when there have been three downs" has two possible
+//  causes that look identical from outside: the bearish breaks were never
+//  recorded, or they were recorded and their swing highs were taken, leaving
+//  an older bullish one as the newest survivor. Guessing between them is how
+//  the last three rounds of this file went wrong, so the panel now prints
+//  each timeframe's stack as arrows, newest first. One screenshot settles it.
 //
 // v5.15 — a wick through the level kills the break:
 //  The switch was already there and defaulted to the other reading: only a
@@ -149,7 +157,7 @@ i_pnl_pad  = input.int(0, title="הרחקת הפאנל מהקצה (שורות)",
 i_col_neut = input.color(color.new(#ffffff, 15), title="צבע טקסט נייטרלי", group=grp_mtf)
 i_mtf_alert = input.bool(true, title="התראה על שבירה חדשה ועל ביטול", group=grp_mtf)
 i_debug    = input.bool(false, title="הצג ערכי בדיקה (בפאנל)",
-     tooltip="מוסיף לפאנל ארבע שורות עם הערכים הגולמיים של מסגרת הגרף:\nd1 = כיוון הנר האחרון שנסגר · d2 = הנר שלפניו · sw = סווינגים · st = מצב המנוע.\nצריך להדליק גם את הפאנל.",
+     tooltip="מוסיף לפאנל את הפתיחה והסגירה שהסקריפט קרא לכל נכס, את הכיוון שנגזר מהן, ואת שורת stk.\nstk = כל השבירות שכל מסגרת עדיין מחזיקה, חץ לכל שבירה, החדשה משמאל. '—' = ריק.\nצריך להדליק גם את הפאנל.",
      group=grp_mtf)
 
 grp_fast   = "═══  התרעה מהירה 5m / 15m  ═══"
@@ -902,7 +910,7 @@ pnlPos = i_pnl_v == "למעלה" ? pnlTop : i_pnl_v == "באמצע" ? pnlMid : p
 pnlUp  = i_pnl_v == "למעלה"
 pnlR0  = pnlUp ? i_pnl_pad : 0
 
-dbgRows = i_debug ? 4 : 0   // NQ, ES, YM, d1
+dbgRows = i_debug ? 5 : 0   // NQ, ES, YM, d1, stk
 
 var table pnlTbl = table.new(pnlPos, 2, 6 + dbgRows + i_pnl_pad, border_width = 0)
 
@@ -916,6 +924,18 @@ f_row3(float n, float e, float y) =>
 
 f_flag(bool b) =>
     b ? "1" : "0"
+
+// Every break a timeframe is still holding, newest first. An arrow per break,
+// so "▼▲▲" means the newest is bearish and two older bullish ones are still
+// untaken beneath it; "—" means the stack is empty.
+f_stk(array<Brk> st) =>
+    r = ""
+    if array.size(st) == 0
+        r := "—"
+    else
+        for k = 0 to array.size(st) - 1
+            r := r + (array.get(st, k).dir < 0 ? "▼" : "▲")
+    r
 
 // The open and close actually read for the last closed bar, to be compared
 // against the same candle on the chart.
@@ -956,6 +976,8 @@ if barstate.islast and i_pnl_on
         table.cell(pnlTbl, 1, pnlR0 + 8, f_oc(a_ym_o[1], a_ym_c[1]), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
         table.cell(pnlTbl, 0, pnlR0 + 9, "d1", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
         table.cell(pnlTbl, 1, pnlR0 + 9, f_row3(nCh.d1, eCh.d1, yCh.d1) + "  pnd" + f_flag(stCh.pndOn), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 0, pnlR0 + 10, "stk", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 1, pnlR0 + 10, "W" + f_stk(b1w) + " D" + f_stk(b1d) + " 4H" + f_stk(b4h) + " 1H" + f_stk(b1h) + " ch" + f_stk(bCh), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
 //  ALERTS
