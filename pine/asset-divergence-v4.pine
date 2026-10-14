@@ -1,6 +1,27 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.17
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.18
 // Pine Script V5
+//
+// v5.18 — two things that were both "it is not showing what I can see":
+//
+//  1. A break was only ever tested against the last CLOSED bar of its
+//     timeframe. On a 4H chart that means you watch price blow through a
+//     swing high and the engine keeps the break alive for up to four hours.
+//     A level is taken the moment price reaches it, closed bar or not.
+//     This costs NO extra request.security: the running high and low of the
+//     bar still forming can be accumulated from the CHART's own bars, which
+//     are already fetched for all three assets. The accumulator resets when
+//     that timeframe's clock rolls, so it always covers exactly the bar in
+//     progress. Still 138 series across 21 calls.
+//     Wick-based only — with the close rule an unfinished bar has no close
+//     to test, so that setting keeps the old behaviour untouched.
+//
+//  2. The early warning was in the code and unreachable. f_rec read
+//     "live ? break : pending ? ◦ : nothing", so the grey ◦ — a bar that
+//     closed with a divergence and is waiting on its swing verdict — could
+//     only ever appear on a timeframe with NO standing break. Exactly the
+//     timeframes you watch always have one. The ◦ now rides alongside a live
+//     break instead of being hidden by it.
 //
 // v5.17 — one asset could kill a break the others were still holding:
 //  The invalidation test was an OR across the three levels, so whichever asset
@@ -418,6 +439,8 @@ type AB
     float lo2 = na
     float tkH = na
     float tkL = na
+    float rnH = na    // the bar still FORMING, accumulated from chart bars
+    float rnL = na
 
 // The fast heads-up keeps no state and tests no level. It needs the last
 // closed bar's direction (that alone decides a PCP), the swing bar's direction
@@ -467,6 +490,21 @@ f_fast(FB b, simple string sym, simple string tf) =>
     b.d2 := d2
     b.sw := sw
     b.d2
+
+// The high and low of the bar still forming on that timeframe, built up from
+// the chart's own bars. This is the whole reason intrabar invalidation costs
+// nothing: the three assets are already fetched at the chart timeframe, and a
+// higher timeframe's bar in progress is just the chart bars since its clock
+// last rolled. rst is that roll.
+f_run(AB b, float h, float l, bool rst) =>
+    if not na(h) and not na(l)
+        if rst or na(b.rnH)
+            b.rnH := h
+            b.rnL := l
+        else
+            b.rnH := math.max(b.rnH, h)
+            b.rnL := math.min(b.rnL, l)
+    b.rnH
 
 // The chart's own timeframe needs no request.security at all — its series are
 // already here. [1] is the last closed bar, matching the index map above.
@@ -600,15 +638,15 @@ type Brk
 // three be taken on three different bars and still add up — the test only ever
 // sees the bar that just closed, so "all three taken" could never be true at
 // one moment otherwise. True = drop it from the stack.
-f_kill(Brk b, AB n, AB e, AB y, bool needAll) =>
+f_kill(Brk b, float nH, float nL, float eH, float eL, float yH, float yL, bool needAll) =>
     hit = false
-    if not na(b.nq) and f_taken(b.nq, b.dir, n.tkH, n.tkL)
+    if not na(b.nq) and f_taken(b.nq, b.dir, nH, nL)
         b.nq := na
         hit := true
-    if not na(b.es) and f_taken(b.es, b.dir, e.tkH, e.tkL)
+    if not na(b.es) and f_taken(b.es, b.dir, eH, eL)
         b.es := na
         hit := true
-    if not na(b.ym) and f_taken(b.ym, b.dir, y.tkH, y.tkL)
+    if not na(b.ym) and f_taken(b.ym, b.dir, yH, yL)
         b.ym := na
         hit := true
     needAll ? na(b.nq) and na(b.es) and na(b.ym) : hit
@@ -628,7 +666,7 @@ f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW) =>
         //       untouched break then goes back on display by itself.
         i = 0
         while i < array.size(st)
-            if f_kill(array.get(st, i), n, e, y, i_kill_all)
+            if f_kill(array.get(st, i), n.tkH, n.tkL, e.tkH, e.tkL, y.tkH, y.tkL, i_kill_all)
                 array.remove(st, i)
             else
                 i += 1
@@ -694,6 +732,27 @@ f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW) =>
         s.isGone := hadLive and not s.live
     s.live
 
+// Run EVERY chart bar, not once per timeframe bar: this is what notices a
+// level being taken by a candle that has not closed. It only shortens a
+// break's life, never creates one, so detection is untouched.
+f_cut(MtfSt s, array<Brk> st, AB n, AB e, AB y) =>
+    if i_inv_wick and array.size(st) > 0
+        i = 0
+        while i < array.size(st)
+            if f_kill(array.get(st, i), n.rnH, n.rnL, e.rnH, e.rnL, y.rnH, y.rnL, i_kill_all)
+                array.remove(st, i)
+            else
+                i += 1
+        if array.size(st) == 0
+            s.live   := false
+            s.isGone := true
+        else
+            top = array.get(st, 0)
+            s.dir  := top.dir
+            s.who  := top.who
+            s.weak := top.weak
+    s.live
+
 var MtfSt st1h = MtfSt.new()
 var MtfSt st4h = MtfSt.new()
 var MtfSt st1d = MtfSt.new()
@@ -707,6 +766,31 @@ var array<Brk> b1d = array.new<Brk>()
 var array<Brk> b1w = array.new<Brk>()
 var array<Brk> bCh = array.new<Brk>()
 
+// The clock rolls exactly when the previous bar of that timeframe closed, so
+// comparing it with the state's lastT — BEFORE f_step consumes it — is what
+// says "a new bar started here, begin the accumulator again". The chart's own
+// timeframe resets every bar, because every chart bar is a new one.
+rs1h = t1h != st1h.lastT
+rs4h = t4h != st4h.lastT
+rs1d = t1d != st1d.lastT
+rs1w = t1w != st1w.lastT
+
+f_run(n1h, a_nq_h, a_nq_l, rs1h)
+f_run(e1h, a_es_h, a_es_l, rs1h)
+f_run(y1h, a_ym_h, a_ym_l, rs1h)
+f_run(n4h, a_nq_h, a_nq_l, rs4h)
+f_run(e4h, a_es_h, a_es_l, rs4h)
+f_run(y4h, a_ym_h, a_ym_l, rs4h)
+f_run(n1d, a_nq_h, a_nq_l, rs1d)
+f_run(e1d, a_es_h, a_es_l, rs1d)
+f_run(y1d, a_ym_h, a_ym_l, rs1d)
+f_run(n1w, a_nq_h, a_nq_l, rs1w)
+f_run(e1w, a_es_h, a_es_l, rs1w)
+f_run(y1w, a_ym_h, a_ym_l, rs1w)
+f_run(nCh, a_nq_h, a_nq_l, true)
+f_run(eCh, a_es_h, a_es_l, true)
+f_run(yCh, a_ym_h, a_ym_l, true)
+
 // 1H never gets the weakness rule; 4H and above always do; the chart's own
 // timeframe only when the chart itself is 4H or higher.
 f_step(stCh, bCh, time, nCh, eCh, yCh, ymwTfOk)
@@ -714,6 +798,13 @@ f_step(st1h, b1h, t1h, n1h, e1h, y1h, false)
 f_step(st4h, b4h, t4h, n4h, e4h, y4h, i_ym_weak)
 f_step(st1d, b1d, t1d, n1d, e1d, y1d, i_ym_weak)
 f_step(st1w, b1w, t1w, n1w, e1w, y1w, i_ym_weak)
+
+// …and then let the unfinished bar take whatever it has already reached.
+f_cut(stCh, bCh, nCh, eCh, yCh)
+f_cut(st1h, b1h, n1h, e1h, y1h)
+f_cut(st4h, b4h, n4h, e4h, y4h)
+f_cut(st1d, b1d, n1d, e1d, y1d)
+f_cut(st1w, b1w, n1w, e1w, y1w)
 
 // ══════════════════════════════════════════════════════════════
 //  THE LINE
@@ -747,8 +838,13 @@ chName = is_1m ? "1m" : is_5m ? "5m" : is_15m ? "15m" : is_1h ? "1H" : is_4h ? "
 f_arrow(MtfSt s) =>
     s.dir < 0 ? "▼" : "▲"
 
+// The ◦ is a bar that CLOSED with a divergence and is waiting on the next
+// close to say whether it was a swing — the candle that may become a PSP. It
+// used to be reachable only when nothing was standing on that timeframe,
+// which on 1H and 4H is almost never. It now rides alongside.
 f_rec(MtfSt s, string nm) =>
-    s.live ? nm + " " + f_arrow(s) + " " + s.who : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
+    pnd = i_show_pending and s.pndOn
+    s.live ? nm + " " + f_arrow(s) + " " + s.who + (pnd ? " ◦" : "") : pnd ? nm + " ◦ " + s.pndWho : ""
 
 f_col(MtfSt s) =>
     s.live ? (s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull) : i_col_pend
