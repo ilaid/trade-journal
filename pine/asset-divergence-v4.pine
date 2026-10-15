@@ -1,6 +1,13 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.28
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.29
 // Pine Script V5
+//
+// v5.29 — the marker sits where you tell it to, not where yloc decides.
+//  yloc.abovebar leaves a gap that grows with the label's size, so making the
+//  markers readable in v5.28 pushed them away from the candles. The label is
+//  priced now — high[1] plus a gap, low[1] minus it — and the gap is an input
+//  measured as a percentage of ATR, which means the same spacing on NQ as on
+//  YM and on a 5m chart as on a weekly one. 0 puts it on the wick itself.
 //
 // v5.28 — the marker has a size and a shape you choose.
 //  Moving to labels in v5.25 left the glyph and the size hard-coded, and
@@ -288,6 +295,9 @@ i_mark_gl = input.string("משולש מלא ▲ ▼", title="סגנון הסימ
      group=grp_col)
 i_mark_tx_bear = input.string("▲", title="טקסט משלי — דובי (מעל הנר)", group=grp_col)
 i_mark_tx_bull = input.string("▼", title="טקסט משלי — שורי (מתחת לנר)", group=grp_col)
+i_mark_gap = input.int(15, title="מרחק הסימון מהנר (% מ-ATR)", minval=0, maxval=300,
+     tooltip="נמדד כאחוז מה-ATR ולא בנקודות, כדי שאותו מספר ייתן אותו מרווח על כל נכס ועל כל מסגרת זמן.\n0 = הסימון יושב על הפתיל עצמו. הגדלת הסימון כבר לא מרחיקה אותו מהנר.",
+     group=grp_col)
 i_mark_erase = input.bool(true, title="מחק סימון שנלקח מהנרות",
      tooltip="כשהנר שמתחת לסימון נלקח — באותו כלל של השורה: NQ וגם ES חצו את הקצה שלו — הסימון נמחק מהמסך ולא נשאר שם.\nכבוי: הסימונים נשארים עד שהם יוצאים מחלון הסימון.",
      group=grp_col)
@@ -1006,6 +1016,11 @@ if i_mark_erase and array.size(mks) > 0
         else
             mi += 1
 
+// The gap in a unit that means the same everywhere: a fraction of ATR, not a
+// number of points. ta.atr is a plain calculation on the chart's own series —
+// no request.security, so it costs nothing against the memory budget.
+markGap = nz(ta.atr(14)) * i_mark_gap / 100.0
+
 // One-line statements on purpose — see the note above mtfTop.
 markSz = i_mark_sz == "זעיר" ? size.tiny : i_mark_sz == "קטן" ? size.small : i_mark_sz == "גדול" ? size.large : i_mark_sz == "ענק" ? size.huge : size.normal
 
@@ -1024,10 +1039,10 @@ f_glyph(bool bear, bool own) =>
 // bear decides which extreme is defended; own decides filled vs hollow,
 // exactly as the four plotchars did.
 f_mark(bool bear, bool own, color c) =>
-    lb = label.new(bar_index - 1, bear ? high[1] : low[1],
+    lb = label.new(bar_index - 1, bear ? high[1] + markGap : low[1] - markGap,
      text      = f_glyph(bear, own),
      style     = label.style_none,
-     yloc      = bear ? yloc.abovebar : yloc.belowbar,
+     yloc      = yloc.price,
      textcolor = c,
      size      = markSz)
     array.unshift(mks, Mk.new(lb, Brk.new(bear ? -1 : 1,
