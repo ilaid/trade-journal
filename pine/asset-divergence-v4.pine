@@ -1,6 +1,18 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.25
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.26
 // Pine Script V5
+//
+// v5.26 — who decides that a marker is taken is now a setting.
+//  v5.25 handed the markers the breaks line's rule: NQ and ES both have to
+//  cross before anything is erased. On a chart that is one of them, that rule
+//  keeps markers you can see were traded through — your eyes are on NQ, the
+//  marker is waiting on ES as well.
+//  A marker is a chart object sitting on a candle in front of you, so the
+//  default is now the simple thing: once THIS chart has traded through that
+//  candle's own extreme, the marker goes. The stricter rules are still there
+//  for anyone who wants the markers and the line to say the same thing.
+//  Only the erasing changed. Which candles get marked in the first place is
+//  the same code it was.
 //
 // v5.25 — a marker whose candle was taken is erased from the chart.
 //  plotchar cannot do this. Its value for a historical bar is frozen the
@@ -245,6 +257,10 @@ i_col_pend = input.color(color.new(#000000, 0), title="צבע PCP ממתין",
      group=grp_col)
 i_mark_erase = input.bool(true, title="מחק סימון שנלקח מהנרות",
      tooltip="כשהנר שמתחת לסימון נלקח — באותו כלל של השורה: NQ וגם ES חצו את הקצה שלו — הסימון נמחק מהמסך ולא נשאר שם.\nכבוי: הסימונים נשארים עד שהם יוצאים מחלון הסימון.",
+     group=grp_col)
+i_mark_rule = input.string("הנכס של הגרף", title="מתי סימון נחשב נלקח",
+     options=["הנכס של הגרף", "NQ וגם ES", "כל שלושת הנכסים"],
+     tooltip="הנכס של הגרף: ברגע שהגרף שאתה עליו עבר את הקצה של אותו נר. זה מה שהעין רואה, וזה המהיר ביותר.\nNQ וגם ES: בדיוק החוק של השורה בצד — שניהם צריכים לעבור, YM לא מכריע.\nכל שלושת הנכסים: גם YM צריך לעבור. הכי שמרני, הסימונים נשארים הכי הרבה זמן.",
      group=grp_col)
 i_mark_keep = input.int(200, title="חלון סימון (נרות אחורה)", minval=20, maxval=450,
      tooltip="פיין מרשה 500 אובייקטים בלבד, ולכן הסימונים מצוירים רק על החלון האחרון. היסטוריה ישנה יותר לא תסומן בכלל.\nזה המחיר של האפשרות למחוק סימון שנלקח.",
@@ -919,8 +935,31 @@ f_cut(st1w, b1w, n1w, e1w, y1w)
 type Mk
     label lb
     Brk   b
+    float own = na   // that candle's extreme on THIS chart
 
 var array<Mk> mks = array.new<Mk>()
+
+// Every level keeps being erased as it falls, whichever rule is selected —
+// only the verdict differs, so switching the setting cannot leave a marker
+// in a state the other rules never reach.
+f_mdead(Mk m) =>
+    f_kill(m.b, nCh.tkH, nCh.tkL, eCh.tkH, eCh.tkL, yCh.tkH, yCh.tkL, false)
+    if i_inv_wick
+        f_kill(m.b, nCh.rnH, nCh.rnL, eCh.rnH, eCh.rnL, yCh.rnH, yCh.rnL, false)
+    // The chart's own candle, straight off the chart's own series. On a
+    // hollow marker the swing was on another asset, but the candle under it
+    // is still this chart's, and trading through it is still what you see.
+    if not na(m.own) and (f_taken(m.own, m.b.dir, high[1], low[1]) or
+     (i_inv_wick and f_taken(m.own, m.b.dir, high, low)))
+        m.own := na
+    rOwn = na(m.own)
+    rCor = na(m.b.nq) and na(m.b.es)
+    rAll = rCor and na(m.b.ym)
+    // Every option is matched by name, so a typo in one cannot quietly fall
+    // through into whichever rule happened to be last.
+    i_mark_rule == "הנכס של הגרף" ? rOwn :
+     i_mark_rule == "NQ וגם ES" ? rCor :
+     i_mark_rule == "כל שלושת הנכסים" ? rAll : rOwn
 
 // Prune BEFORE drawing. tkH/tkL on the chart's own timeframe is bar[1], which
 // is the swing bar a marker born on this bar sits on — testing a new marker
@@ -928,14 +967,8 @@ var array<Mk> mks = array.new<Mk>()
 if i_mark_erase and array.size(mks) > 0
     mi = 0
     while mi < array.size(mks)
-        mk   = array.get(mks, mi)
-        gone = f_kill(mk.b, nCh.tkH, nCh.tkL, eCh.tkH, eCh.tkL,
-         yCh.tkH, yCh.tkL, i_kill_all)
-        if not gone and i_inv_wick
-            gone := f_kill(mk.b, nCh.rnH, nCh.rnL, eCh.rnH, eCh.rnL,
-             yCh.rnH, yCh.rnL, i_kill_all)
-        if gone
-            label.delete(mk.lb)
+        if f_mdead(array.get(mks, mi))
+            label.delete(array.get(mks, mi).lb)
             array.remove(mks, mi)
         else
             mi += 1
@@ -954,7 +987,8 @@ f_mark(bool bear, bool own, color c) =>
      wk1,
      i_use_nq ? (bear ? a_nq_h[1] : a_nq_l[1]) : na,
      i_use_es ? (bear ? a_es_h[1] : a_es_l[1]) : na,
-     i_use_ym ? (bear ? a_ym_h[1] : a_ym_l[1]) : na)))
+     i_use_ym ? (bear ? a_ym_h[1] : a_ym_l[1]) : na),
+     bear ? high[1] : low[1]))
     // The window, and the reason for it: Pine holds 500 label objects at most,
     // and running into that ceiling would erase markers for no reason at all.
     while array.size(mks) > i_mark_keep
