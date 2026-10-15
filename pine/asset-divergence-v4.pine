@@ -1,6 +1,11 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.23
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.24
 // Pine Script V5
+//
+// v5.24 — the ◦ carries its own timeframe, "◦4H".
+//  Giving it a cell of its own fixed the colour and broke the reading: in
+//  "1W ▲ NQ ES ◦ 1D ▼ ALL ◦" there is nothing to say whether a ◦ belongs to
+//  the entry before it or the one after. Two characters settle it.
 //
 // v5.23 — the ◦ gets a cell of its own, so it can be its own colour.
 //  A standing break and a candle waiting on its swing verdict are two
@@ -228,7 +233,7 @@ i_col_pcp  = input.color(color.new(#ffd54f, 80), title="גוון נרות PCP", 
 
 grp_mtf    = "═══  מסגרות זמן גבוהות  ═══"
 i_mtf_on   = input.bool(true, title="הצג שורת שבירות",
-     tooltip="שורה אחת בפינה: השבירה האחרונה מ-1H / 4H / 1D / 1W, ולידה באפור נר שנסגר עם דיברגנס וממתין להכרעה אם הוא סווינג.\nשבירה חדשה מחליפה את הקודמת. מוצגות רק מסגרות גבוהות ממסגרת הגרף.",
+     tooltip="שורה אחת בפינה: השבירה העומדת בכל מסגרת.\nלידה מופיע ◦ עם שם המסגרת — למשל ◦4H — שאומר שנר חדש באותה מסגרת נסגר עם דיברגנס ומחכה לסגירה הבאה כדי לדעת אם הוא סווינג. זה לא קשור לשבירה שלידו.\nמוצגות רק מסגרות גבוהות ממסגרת הגרף.",
      group=grp_mtf)
 i_mtf_v    = input.string("למטה", title="גובה השורה",
      options=["למעלה", "באמצע", "למטה"], group=grp_mtf)
@@ -927,7 +932,8 @@ f_rec(MtfSt s, string nm) =>
     s.live ? nm + " " + f_arrow(s) + " " + s.who : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
 
 // A ◦ that needs its own cell: there is a break on display AND a new candle
-// waiting on its verdict behind it.
+// waiting on its verdict behind it. The cell names its timeframe — "◦4H" —
+// because sitting between two entries says nothing about which one it is for.
 f_dot(MtfSt s) =>
     i_show_pending and s.live and s.pndOn
 
@@ -1038,7 +1044,7 @@ if barstate.islast and i_mtf_on
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
         if d1w
-            table.cell(mtfTbl, col, mtfRow, "◦", text_color = i_col_pend,
+            table.cell(mtfTbl, col, mtfRow, "◦1W", text_color = i_col_pend,
                  text_size = size.small, bgcolor = c_clear)
             col := col + 1
     if r1d != ""
@@ -1046,7 +1052,7 @@ if barstate.islast and i_mtf_on
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
         if d1d
-            table.cell(mtfTbl, col, mtfRow, "◦", text_color = i_col_pend,
+            table.cell(mtfTbl, col, mtfRow, "◦1D", text_color = i_col_pend,
                  text_size = size.small, bgcolor = c_clear)
             col := col + 1
     if r4h != ""
@@ -1054,7 +1060,7 @@ if barstate.islast and i_mtf_on
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
         if d4h
-            table.cell(mtfTbl, col, mtfRow, "◦", text_color = i_col_pend,
+            table.cell(mtfTbl, col, mtfRow, "◦4H", text_color = i_col_pend,
                  text_size = size.small, bgcolor = c_clear)
             col := col + 1
     if r1h != ""
@@ -1062,7 +1068,7 @@ if barstate.islast and i_mtf_on
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
         if d1h
-            table.cell(mtfTbl, col, mtfRow, "◦", text_color = i_col_pend,
+            table.cell(mtfTbl, col, mtfRow, "◦1H", text_color = i_col_pend,
                  text_size = size.small, bgcolor = c_clear)
             col := col + 1
     if rCh != ""
@@ -1070,7 +1076,7 @@ if barstate.islast and i_mtf_on
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
         if dCh
-            table.cell(mtfTbl, col, mtfRow, "◦", text_color = i_col_pend,
+            table.cell(mtfTbl, col, mtfRow, "◦" + chName, text_color = i_col_pend,
                  text_size = size.small, bgcolor = c_clear)
             col := col + 1
     if col <= 11
