@@ -1,6 +1,11 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.18
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.19
 // Pine Script V5
+//
+// v5.19 — YM weakness moves up to daily and above.
+//  It was 4H and above. 4H now joins 1H in never carrying it, so the rule
+//  lives on 1D and 1W only, and on the chart's own bars only when the chart
+//  is daily or higher.
 //
 // v5.18 — two things that were both "it is not showing what I can see":
 //
@@ -82,7 +87,8 @@
 //  is an ordinary break in ordinary colours, whatever YM did on it.
 //
 // v5.11 — YM weakness is a category at all: YM DOWN while the others are up,
-//  tested only after ES-vs-NQ and YM strength both come up empty, 4H and above.
+//  tested only after ES-vs-NQ and YM strength both come up empty. It was 4H
+//  and above when introduced; v5.19 moved it to daily and above.
 // v5.10 — the breaks line is 1H and above, full stop; the chart's own
 //  timeframe joins it only when the chart is 1H or higher.
 // v5.9 — the 5m/15m heads-up gets a box of its own, PCP included, plus a real
@@ -132,8 +138,8 @@ i_use_es   = input.bool(true,  title="כלול ES", group=grp_assets)
 i_use_ym   = input.bool(true,  title="כלול YM",
      tooltip="חוזקה: YM נסגר בעלייה בזמן ש-ES ו/או NQ נסגרים בירידה.",
      group=grp_assets)
-i_ym_weak  = input.bool(true, title="כלול גם חולשת YM (4 שעות ומעלה)",
-     tooltip="YM נסגר בירידה בזמן ש-ES ו-NQ נסגרים בעלייה. מצויר בצבע נפרד.\nנספר רק כשאין כבר דיברגנס אחר — אם ES ו-NQ חלוקים ביניהם, זו שבירה רגילה בצבע רגיל, גם אם YM ירד.\nפעיל רק על נרות של 4 שעות ומעלה; ב-1H ומטה חולשה של מדד בודד היא רעש.",
+i_ym_weak  = input.bool(true, title="כלול גם חולשת YM (יומי ומעלה)",
+     tooltip="YM נסגר בירידה בזמן ש-ES ו-NQ נסגרים בעלייה. מצויר בצבע נפרד.\nנספר רק כשאין כבר דיברגנס אחר — אם ES ו-NQ חלוקים ביניהם, זו שבירה רגילה בצבע רגיל, גם אם YM ירד.\nפעיל רק על נרות יומיים ומעלה; מתחת לזה חולשה של מדד בודד היא רעש.",
      group=grp_assets)
 i_settle   = input.string("כבוי — כמו הגרף", title="Settlement כסגירה יומית",
      options=["כבוי — כמו הגרף", "דלוק", "ברירת המחדל של הסימבול"],
@@ -239,11 +245,11 @@ is_1w  = tf_str == "W"
 // rule needs it before the detection below.
 chartSec = timeframe.in_seconds(timeframe.period)
 
-// YM weakness is a 4H-and-above rule. On the chart's own bars that means the
-// chart itself has to be 4H or higher; the stepped 4H/1D/1W engines carry it
+// YM weakness is a DAILY-and-above rule. On the chart's own bars that means
+// the chart itself has to be 1D or higher; the stepped 1D/1W engines carry it
 // whatever chart you are standing on, because it is a property of the candle,
 // not of where you are looking from.
-ymwTfOk = i_ym_weak and chartSec >= timeframe.in_seconds("240")
+ymwTfOk = i_ym_weak and chartSec >= timeframe.in_seconds("D")
 
 tf_allowed = (is_1m  and i_tf_1m)  or
              (is_5m  and i_tf_5m)  or
@@ -293,7 +299,7 @@ ym_dir = f_dir(a_ym_o, a_ym_c)
 //  ES vs NQ : any direction mismatch is a divergence.
 //  YM up    : STRENGTH — YM closes UP while ES and/or NQ close DOWN.
 //  YM down  : WEAKNESS — YM closes DOWN while the others close UP. A separate
-//             category, 4H and above only, and only when neither of the two
+//             category, DAILY and above only, and only when neither of the two
 //             rules above already fired: if ES and NQ are split, that split is
 //             the signal. Since they must agree for this to be reachable,
 //             "at least one of them up" means both of them up in practice.
@@ -791,11 +797,11 @@ f_run(nCh, a_nq_h, a_nq_l, true)
 f_run(eCh, a_es_h, a_es_l, true)
 f_run(yCh, a_ym_h, a_ym_l, true)
 
-// 1H never gets the weakness rule; 4H and above always do; the chart's own
-// timeframe only when the chart itself is 4H or higher.
+// 1H and 4H never get the weakness rule; 1D and 1W always do; the chart's own
+// timeframe only when the chart itself is daily or higher.
 f_step(stCh, bCh, time, nCh, eCh, yCh, ymwTfOk)
 f_step(st1h, b1h, t1h, n1h, e1h, y1h, false)
-f_step(st4h, b4h, t4h, n4h, e4h, y4h, i_ym_weak)
+f_step(st4h, b4h, t4h, n4h, e4h, y4h, false)
 f_step(st1d, b1d, t1d, n1d, e1d, y1d, i_ym_weak)
 f_step(st1w, b1w, t1w, n1w, e1w, y1w, i_ym_weak)
 
