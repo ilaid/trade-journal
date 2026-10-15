@@ -1,6 +1,20 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.26
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.27
 // Pine Script V5
+//
+// v5.27 — one engine per timeframe, so "1H" says the same thing everywhere.
+//  On a 5m chart the 1H entry came from the stepped engine. On a 1H chart
+//  3600 > 3600 is false, so that entry was hidden and the chart's own engine
+//  took its place under the same "1H" label — a different engine, built from
+//  a different series over a different history. Two answers for one
+//  timeframe, and which one you got depended on where you were standing.
+//  The listed timeframes now come from the stepped engine whenever they are
+//  at or above the chart, and the chart's own entry appears only when it is
+//  not already one of them. Requesting a timeframe equal to the chart's is
+//  safe in a way requesting a lower one is not: one sample per chart bar is
+//  exactly one bar of that timeframe, nothing is skipped.
+//  Nothing in the detection changed. This is which of two existing answers
+//  the line shows.
 //
 // v5.26 — who decides that a marker is taken is now a setting.
 //  v5.25 handed the markers the breaks line's rule: NQ and ES both have to
@@ -1016,22 +1030,33 @@ if bar_index > 2
 //  and is still waiting on its swing verdict, otherwise nothing. Cells pack
 //  left, so gaps close up.
 //
-//  A timeframe between the chart's and the fast pair is left out: stepping
-//  it through history would sample it once per chart bar and the carried
-//  "level taken" state would come out wrong. The chart's own timeframe has
-//  no such problem — it is built from the chart's own series.
+//  A timeframe BELOW the chart's is left out: stepping it through history
+//  would sample it once per chart bar, skipping whole bars of it, and the
+//  carried "level taken" state would come out wrong. A timeframe EQUAL to the
+//  chart's has no such problem — one sample per chart bar is exactly one of
+//  its bars — which is why these are >= and not >.
+//
+//  That distinction is the whole point. With >, 1H on a 1H chart fell through
+//  to the chart's own engine under the same "1H" label: a second engine, on a
+//  different series over a different history, answering the same question.
+//  The line then said one thing on a 5m chart and another on a 1H chart.
+//  One engine owns each timeframe now.
 // ══════════════════════════════════════════════════════════════
 
-sh1h = timeframe.in_seconds("60")  > chartSec
-sh4h = timeframe.in_seconds("240") > chartSec
-sh1d = timeframe.in_seconds("D")   > chartSec
-sh1w = timeframe.in_seconds("W")   > chartSec
+sh1h = timeframe.in_seconds("60")  >= chartSec
+sh4h = timeframe.in_seconds("240") >= chartSec
+sh1d = timeframe.in_seconds("D")   >= chartSec
+sh1w = timeframe.in_seconds("W")   >= chartSec
 
 // The chart's own timeframe belongs in this line only when the line's own
-// rule — 1H and above — is true of it. On 1m/5m/15m it was the "5m ▼ ALL"
-// that made the fast signal look like a list entry you could only see by
-// standing on its timeframe. Those belong to the box below.
-chIsBig = chartSec >= timeframe.in_seconds("60")
+// rule — 1H and above — is true of it, AND it is not already one of the four
+// above it. On 1m/5m/15m it was the "5m ▼ ALL" that made the fast signal look
+// like a list entry you could only see by standing on its timeframe; those
+// belong to the box below. On 1H/4H/1D/1W it would now be a duplicate of a
+// row the stepped engine already owns. What is left is the in-between — 2H,
+// 6H, 8H, 3D — which nothing else covers.
+chDup   = is_1h or is_4h or is_1d or is_1w
+chIsBig = chartSec >= timeframe.in_seconds("60") and not chDup
 
 chName = is_1m ? "1m" : is_5m ? "5m" : is_15m ? "15m" : is_1h ? "1H" : is_4h ? "4H" : is_1d ? "1D" : is_1w ? "1W" : tf_str
 
