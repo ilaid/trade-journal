@@ -1,6 +1,15 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.22
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.23
 // Pine Script V5
+//
+// v5.23 — the ◦ gets a cell of its own, so it can be its own colour.
+//  A standing break and a candle waiting on its swing verdict are two
+//  unrelated things, and v5.18 put them in one cell. A Pine table cell carries
+//  a single text colour, so the ◦ came out red beside a bearish break and read
+//  as part of it — the exact confusion it was added to prevent.
+//  It is now a separate cell, always in the pending colour, whatever the break
+//  beside it is doing. The line goes to twelve columns to make room; columns
+//  cost nothing and empty ones render as nothing.
 //
 // v5.22 — the pending ◦ is black, not washed-out grey.
 //  #9e9e9e at 25% transparency all but disappeared on a light chart. Black
@@ -909,12 +918,18 @@ f_arrow(MtfSt s) =>
     s.dir < 0 ? "▼" : "▲"
 
 // The ◦ is a bar that CLOSED with a divergence and is waiting on the next
-// close to say whether it was a swing — the candle that may become a PSP. It
-// used to be reachable only when nothing was standing on that timeframe,
-// which on 1H and 4H is almost never. It now rides alongside.
+// close to say whether it was a swing — the candle that may become a PSP.
+// With nothing standing on that timeframe it IS the record, and the cell takes
+// the pending colour. With a break standing, the two have nothing to do with
+// each other, so the ◦ goes out to a cell of its own rather than inheriting
+// the break's colour — see f_dot.
 f_rec(MtfSt s, string nm) =>
-    pnd = i_show_pending and s.pndOn
-    s.live ? nm + " " + f_arrow(s) + " " + s.who + (pnd ? " ◦" : "") : pnd ? nm + " ◦ " + s.pndWho : ""
+    s.live ? nm + " " + f_arrow(s) + " " + s.who : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
+
+// A ◦ that needs its own cell: there is a break on display AND a new candle
+// waiting on its verdict behind it.
+f_dot(MtfSt s) =>
+    i_show_pending and s.live and s.pndOn
 
 f_col(MtfSt s) =>
     s.live ? (s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull) : i_col_pend
@@ -924,6 +939,12 @@ r1d = sh1d ? f_rec(st1d, "1D") : ""
 r4h = sh4h ? f_rec(st4h, "4H") : ""
 r1h = sh1h ? f_rec(st1h, "1H") : ""
 rCh = tf_allowed and chIsBig ? f_rec(stCh, chName) : ""
+
+d1w = sh1w and f_dot(st1w)
+d1d = sh1d and f_dot(st1d)
+d4h = sh4h and f_dot(st4h)
+d1h = sh1h and f_dot(st1h)
+dCh = tf_allowed and chIsBig and f_dot(stCh)
 
 // ── the fast heads-up ──
 //  Deliberately NOT the carried-state engine. A PSP is a function of three
@@ -997,7 +1018,7 @@ mtfRow = mtfUp ? i_mtf_pad : 0
 
 // One cell per timeframe, not one joined string: a cell carries a single
 // text colour, and each timeframe has to be painted in its own state's.
-var table mtfTbl = table.new(mtfPos, 7, 1 + i_mtf_pad, border_width = 0)
+var table mtfTbl = table.new(mtfPos, 12, 1 + i_mtf_pad, border_width = 0)
 
 c_clear = color.new(color.black, 100)
 
@@ -1016,24 +1037,44 @@ if barstate.islast and i_mtf_on
         table.cell(mtfTbl, col, mtfRow, r1w, text_color = f_col(st1w),
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
+        if d1w
+            table.cell(mtfTbl, col, mtfRow, "◦", text_color = i_col_pend,
+                 text_size = size.small, bgcolor = c_clear)
+            col := col + 1
     if r1d != ""
         table.cell(mtfTbl, col, mtfRow, r1d, text_color = f_col(st1d),
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
+        if d1d
+            table.cell(mtfTbl, col, mtfRow, "◦", text_color = i_col_pend,
+                 text_size = size.small, bgcolor = c_clear)
+            col := col + 1
     if r4h != ""
         table.cell(mtfTbl, col, mtfRow, r4h, text_color = f_col(st4h),
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
+        if d4h
+            table.cell(mtfTbl, col, mtfRow, "◦", text_color = i_col_pend,
+                 text_size = size.small, bgcolor = c_clear)
+            col := col + 1
     if r1h != ""
         table.cell(mtfTbl, col, mtfRow, r1h, text_color = f_col(st1h),
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
+        if d1h
+            table.cell(mtfTbl, col, mtfRow, "◦", text_color = i_col_pend,
+                 text_size = size.small, bgcolor = c_clear)
+            col := col + 1
     if rCh != ""
         table.cell(mtfTbl, col, mtfRow, rCh, text_color = f_col(stCh),
              text_size = size.small, bgcolor = c_clear)
         col := col + 1
-    if col <= 6
-        for k = col to 6
+        if dCh
+            table.cell(mtfTbl, col, mtfRow, "◦", text_color = i_col_pend,
+                 text_size = size.small, bgcolor = c_clear)
+            col := col + 1
+    if col <= 11
+        for k = col to 11
             table.cell(mtfTbl, k, mtfRow, "", bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
