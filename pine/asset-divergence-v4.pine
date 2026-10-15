@@ -1,6 +1,15 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.27
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.28
 // Pine Script V5
+//
+// v5.28 — the marker has a size and a shape you choose.
+//  Moving to labels in v5.25 left the glyph and the size hard-coded, and
+//  size.tiny on a label is smaller than the same name was on a plotchar.
+//  Two inputs now: five sizes, and five shapes — full triangle, the small
+//  triangle this had, circle, diamond, or two characters you type yourself.
+//  Filled still means the swing was on the chart's own asset and hollow means
+//  it was on another, so the one thing the marker always told you survives
+//  every shape. Drawing only; nothing here decides anything.
 //
 // v5.27 — one engine per timeframe, so "1H" says the same thing everywhere.
 //  On a 5m chart the 1H entry came from the stepped engine. On a 1H chart
@@ -269,6 +278,16 @@ i_show_pending = input.bool(true, title="הצג סימון PCP ממתין (•)"
 i_col_pend = input.color(color.new(#000000, 0), title="צבע PCP ממתין",
      tooltip="צובע את ה-◦ בשורה וגם את הנקודות על הנרות.\nשחור ואטום כברירת מחדל, כי אפור שקוף נבלע בגרף בהיר. על ערכת נושא כהה תחליף לבן.\nכש-◦ מופיע לצד שבירה חיה הוא יוצא בצבע של השבירה — תא בטבלה נושא צבע טקסט אחד.",
      group=grp_col)
+i_mark_sz = input.string("רגיל", title="גודל הסימון",
+     options=["זעיר", "קטן", "רגיל", "גדול", "ענק"],
+     tooltip="\"זעיר\" הוא מה שהיה עד עכשיו — על label זה יוצא קטן יותר מאותו שם על plotchar, ולכן הסימונים נראו זעירים.",
+     group=grp_col)
+i_mark_gl = input.string("משולש מלא ▲ ▼", title="סגנון הסימון",
+     options=["משולש מלא ▲ ▼", "משולש קטן ▴ ▾", "עיגול ● ○", "יהלום ◆ ◇", "טקסט משלי"],
+     tooltip="הצורה המלאה = הסווינג קרה בנכס שעל הגרף. החלולה = הסווינג קרה בנכס אחר. זה נשמר בכל הסגנונות.\nב\"טקסט משלי\" אתה כותב את שני התווים בעצמך, והחלול מסומן בעמעום בלבד.",
+     group=grp_col)
+i_mark_tx_bear = input.string("▲", title="טקסט משלי — דובי (מעל הנר)", group=grp_col)
+i_mark_tx_bull = input.string("▼", title="טקסט משלי — שורי (מתחת לנר)", group=grp_col)
 i_mark_erase = input.bool(true, title="מחק סימון שנלקח מהנרות",
      tooltip="כשהנר שמתחת לסימון נלקח — באותו כלל של השורה: NQ וגם ES חצו את הקצה שלו — הסימון נמחק מהמסך ולא נשאר שם.\nכבוי: הסימונים נשארים עד שהם יוצאים מחלון הסימון.",
      group=grp_col)
@@ -987,15 +1006,30 @@ if i_mark_erase and array.size(mks) > 0
         else
             mi += 1
 
-// bear decides the glyph pair and which extreme is defended; own decides
-// filled vs hollow, exactly as the four plotchars did.
+// One-line statements on purpose — see the note above mtfTop.
+markSz = i_mark_sz == "זעיר" ? size.tiny : i_mark_sz == "קטן" ? size.small : i_mark_sz == "גדול" ? size.large : i_mark_sz == "ענק" ? size.huge : size.normal
+
+// Filled means the swing was on the chart's own asset, hollow means it was on
+// another — the one thing a marker has always said, kept in every shape. The
+// round and diamond shapes carry no direction of their own and do not need to:
+// above the bar or below it has already said which way it points.
+f_glyph(bool bear, bool own) =>
+    i_mark_gl == "משולש מלא ▲ ▼" ? (bear ? (own ? "▲" : "△") : (own ? "▼" : "▽")) :
+     i_mark_gl == "משולש קטן ▴ ▾" ? (bear ? (own ? "▴" : "▵") : (own ? "▾" : "▿")) :
+     i_mark_gl == "עיגול ● ○" ? (own ? "●" : "○") :
+     i_mark_gl == "יהלום ◆ ◇" ? (own ? "◆" : "◇") :
+     i_mark_gl == "טקסט משלי" ? (bear ? i_mark_tx_bear : i_mark_tx_bull) :
+     (bear ? (own ? "▲" : "△") : (own ? "▼" : "▽"))
+
+// bear decides which extreme is defended; own decides filled vs hollow,
+// exactly as the four plotchars did.
 f_mark(bool bear, bool own, color c) =>
     lb = label.new(bar_index - 1, bear ? high[1] : low[1],
-     text      = bear ? (own ? "▴" : "▵") : (own ? "▾" : "▿"),
+     text      = f_glyph(bear, own),
      style     = label.style_none,
      yloc      = bear ? yloc.abovebar : yloc.belowbar,
      textcolor = c,
-     size      = size.tiny)
+     size      = markSz)
     array.unshift(mks, Mk.new(lb, Brk.new(bear ? -1 : 1,
      (i_use_nq ? 1 : 0) + (i_use_es ? 1 : 0),
      wk1,
