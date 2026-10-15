@@ -1,6 +1,20 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.24
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.25
 // Pine Script V5
+//
+// v5.25 — a marker whose candle was taken is erased from the chart.
+//  plotchar cannot do this. Its value for a historical bar is frozen the
+//  moment that bar is processed, and "taken later" is future information
+//  there. The four PSP markers become labels, which can be deleted, and each
+//  one carries the same Brk the breaks line uses — the swing candle's extreme
+//  on each asset — so it is judged by exactly the same rule: NQ and ES decide,
+//  YM never does, a level erased as it falls.
+//  What this costs, and it is not nothing: Pine allows at most 500 label
+//  objects, so markers are only drawn over a window of recent bars, 200 by
+//  default. Older history shows nothing at all. That is the trade for being
+//  able to erase, and the window is an input.
+//  The ◦ pending dots stay plotchar — they only ever sit on the unfinished bar
+//  and clear themselves when it closes, so they never need deleting.
 //
 // v5.24 — the ◦ carries its own timeframe, "◦4H".
 //  Giving it a cell of its own fixed the colour and broke the reading: in
@@ -172,8 +186,9 @@
 
 //@version=5
 indicator("Asset Divergence | PCP & PSP v5", shorttitle="ADI v5",
-     overlay       = true,
-     max_bars_back = 5000)
+     overlay          = true,
+     max_bars_back    = 5000,
+     max_labels_count = 500)
 
 // ══════════════════════════════════════════════════════════════
 //  INPUTS
@@ -227,6 +242,12 @@ i_show_pending = input.bool(true, title="הצג סימון PCP ממתין (•)"
      group=grp_col)
 i_col_pend = input.color(color.new(#000000, 0), title="צבע PCP ממתין",
      tooltip="צובע את ה-◦ בשורה וגם את הנקודות על הנרות.\nשחור ואטום כברירת מחדל, כי אפור שקוף נבלע בגרף בהיר. על ערכת נושא כהה תחליף לבן.\nכש-◦ מופיע לצד שבירה חיה הוא יוצא בצבע של השבירה — תא בטבלה נושא צבע טקסט אחד.",
+     group=grp_col)
+i_mark_erase = input.bool(true, title="מחק סימון שנלקח מהנרות",
+     tooltip="כשהנר שמתחת לסימון נלקח — באותו כלל של השורה: NQ וגם ES חצו את הקצה שלו — הסימון נמחק מהמסך ולא נשאר שם.\nכבוי: הסימונים נשארים עד שהם יוצאים מחלון הסימון.",
+     group=grp_col)
+i_mark_keep = input.int(200, title="חלון סימון (נרות אחורה)", minval=20, maxval=450,
+     tooltip="פיין מרשה 500 אובייקטים בלבד, ולכן הסימונים מצוירים רק על החלון האחרון. היסטוריה ישנה יותר לא תסומן בכלל.\nזה המחיר של האפשרות למחוק סימון שנלקח.",
      group=grp_col)
 i_show_pcp_bars = input.bool(false, title="צבע את כל נרות ה-PCP", group=grp_col)
 i_col_pcp  = input.color(color.new(#ffd54f, 80), title="גוון נרות PCP", group=grp_col)
@@ -433,21 +454,10 @@ c_bull_own = wk1 ? i_col_weak : i_col_bull
 c_bear_ext = color.new(c_bear_own, i_ext_transp)
 c_bull_ext = color.new(c_bull_own, i_ext_transp)
 
-plotchar(psp_bear_own ? 1 : na, title="PSP Bear — Own Asset",
-     char="▴", location=location.abovebar, color=c_bear_own,
-     offset=-1, size=size.tiny)
-
-plotchar(psp_bear_ext ? 1 : na, title="PSP Bear — Other Asset",
-     char="▵", location=location.abovebar, color=c_bear_ext,
-     offset=-1, size=size.tiny)
-
-plotchar(psp_bull_own ? 1 : na, title="PSP Bull — Own Asset",
-     char="▾", location=location.belowbar, color=c_bull_own,
-     offset=-1, size=size.tiny)
-
-plotchar(psp_bull_ext ? 1 : na, title="PSP Bull — Other Asset",
-     char="▿", location=location.belowbar, color=c_bull_ext,
-     offset=-1, size=size.tiny)
+// The four PSP markers are drawn further down, as labels, because a marker
+// has to be removable once its candle is taken and plotchar is frozen the
+// moment its bar is processed. The colours are computed here because that is
+// where wk1 lives.
 
 // ── Pending: self-clearing, because a bar is undecided exactly while
 //    barstate.isconfirmed is false. Historical bars are always confirmed.
@@ -889,6 +899,78 @@ f_cut(st1h, b1h, n1h, e1h, y1h)
 f_cut(st4h, b4h, n4h, e4h, y4h)
 f_cut(st1d, b1d, n1d, e1d, y1d)
 f_cut(st1w, b1w, n1w, e1w, y1w)
+
+// ══════════════════════════════════════════════════════════════
+//  THE MARKERS ON THE CHART
+//
+//  A marker has to be erasable, so it is a label and not a plotchar: a
+//  historical bar's plotchar value is fixed when that bar is processed, and
+//  "this candle was taken two days later" is future information there.
+//
+//  Each marker carries a Brk — the swing candle's own extreme on NQ, on ES
+//  and on YM — so it is judged by the same rule as the line and cannot drift
+//  away from it: every enabled asset defends that candle on its own chart,
+//  NQ and ES together decide, YM is carried but never decides.
+//
+//  Nothing above this point is touched. The swing detection, the divergence
+//  and the stepped engine produced their answers already; this only draws.
+// ══════════════════════════════════════════════════════════════
+
+type Mk
+    label lb
+    Brk   b
+
+var array<Mk> mks = array.new<Mk>()
+
+// Prune BEFORE drawing. tkH/tkL on the chart's own timeframe is bar[1], which
+// is the swing bar a marker born on this bar sits on — testing a new marker
+// against its own candle would kill it on birth.
+if i_mark_erase and array.size(mks) > 0
+    mi = 0
+    while mi < array.size(mks)
+        mk   = array.get(mks, mi)
+        gone = f_kill(mk.b, nCh.tkH, nCh.tkL, eCh.tkH, eCh.tkL,
+         yCh.tkH, yCh.tkL, i_kill_all)
+        if not gone and i_inv_wick
+            gone := f_kill(mk.b, nCh.rnH, nCh.rnL, eCh.rnH, eCh.rnL,
+             yCh.rnH, yCh.rnL, i_kill_all)
+        if gone
+            label.delete(mk.lb)
+            array.remove(mks, mi)
+        else
+            mi += 1
+
+// bear decides the glyph pair and which extreme is defended; own decides
+// filled vs hollow, exactly as the four plotchars did.
+f_mark(bool bear, bool own, color c) =>
+    lb = label.new(bar_index - 1, bear ? high[1] : low[1],
+     text      = bear ? (own ? "▴" : "▵") : (own ? "▾" : "▿"),
+     style     = label.style_none,
+     yloc      = bear ? yloc.abovebar : yloc.belowbar,
+     textcolor = c,
+     size      = size.tiny)
+    array.unshift(mks, Mk.new(lb, Brk.new(bear ? -1 : 1,
+     (i_use_nq ? 1 : 0) + (i_use_es ? 1 : 0),
+     wk1,
+     i_use_nq ? (bear ? a_nq_h[1] : a_nq_l[1]) : na,
+     i_use_es ? (bear ? a_es_h[1] : a_es_l[1]) : na,
+     i_use_ym ? (bear ? a_ym_h[1] : a_ym_l[1]) : na)))
+    // The window, and the reason for it: Pine holds 500 label objects at most,
+    // and running into that ceiling would erase markers for no reason at all.
+    while array.size(mks) > i_mark_keep
+        old = array.pop(mks)
+        label.delete(old.lb)
+    array.size(mks)
+
+if bar_index > 2
+    if psp_bear_own
+        f_mark(true,  true,  c_bear_own)
+    if psp_bear_ext
+        f_mark(true,  false, c_bear_ext)
+    if psp_bull_own
+        f_mark(false, true,  c_bull_own)
+    if psp_bull_ext
+        f_mark(false, false, c_bull_ext)
 
 // ══════════════════════════════════════════════════════════════
 //  THE LINE
