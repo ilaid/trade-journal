@@ -1,6 +1,22 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.19
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.20
 // Pine Script V5
+//
+// v5.20 — a majority decides, and the line names who is still defending:
+//  v5.17 let a break live while ANY asset that made it still held its level.
+//  That fixed YM killing breaks on its own and created the mirror fault: the
+//  Dow often has nothing to do with the other two, so its swing survives while
+//  both of theirs are taken, and the break rides on YM alone.
+//  A break now dies once a MAJORITY of the levels it was born with is gone,
+//  and never rides on YM alone — unless YM was the only asset that ever held a
+//  level for it, in which case there is no majority to speak of.
+//  The names in the line change meaning with it: they used to say who made the
+//  divergence, fixed at birth. They now say who is STILL DEFENDING, so
+//  "4H ▼ NQ ES" becomes "4H ▼ ES" the moment NQ's level is taken, and you can
+//  read what is holding the break up without opening anything.
+//  Note what that costs: a level is only stored for an asset that made the
+//  SWING, not for every asset that diverged, so the list is shorter than the
+//  old one by design. It is the honest answer to "what is keeping this alive".
 //
 // v5.19 — YM weakness moves up to daily and above.
 //  It was 4H and above. 4H now joins 1H in never carrying it, so the rule
@@ -185,8 +201,8 @@ i_mtf_pad  = input.int(0, title="הרחקת השורה מהקצה (שורות)",
 i_depth    = input.int(5, title="כמה שבירות לזכור לכל מסגרת", minval=1, maxval=10,
      tooltip="שבירה חדשה לא מוחקת את הקודמת. אם החדשה נלקחת, חוזרים להצגת הקודמת — כל עוד הרמה שלה עצמה לא נלקחה.\nהמספר הוא כמה אחורה לשמור.",
      group=grp_mtf)
-i_kill_all = input.bool(true, title="בטל שבירה רק כשכל הנכסים לקחו",
-     tooltip="דלוק (ברירת מחדל): השבירה חיה כל עוד לפחות נכס אחד שיצר אותה עדיין מגן על הרמה שלו. כל רמה שנלקחת נמחקת, והשבירה מתה רק כשכולן נלקחו.\nכבוי: מספיק שנכס אחד לוקח את הרמה שלו — וזה מה ש-YM היה עושה לשבירות ש-NQ ו-ES עדיין החזיקו.",
+i_kill_all = input.bool(true, title="ביטול לפי רוב (YM לבדו לא מחזיק)",
+     tooltip="דלוק (ברירת מחדל): כל רמה שנלקחת נמחקת, והשבירה מתה כשרוב הרמות שאיתן נולדה נעלמו. YM לבדו לא מחזיק שבירה — אלא אם הוא היחיד שהחזיק רמה מלכתחילה.\nכבוי: מספיק שנכס אחד לוקח את הרמה שלו כדי לבטל.\nהשמות בשורה מראים מי עדיין מגן, לא מי יצר את הדיברגנס.",
      group=grp_mtf)
 i_inv_wick = input.bool(true, title="בטל שבירה לפי פתיל",
      tooltip="דלוק (ברירת מחדל): מספיק שפתיל חוצה את רמת הסווינג כדי שהשבירה תפסיק להיחשב.\nכבוי: רק נר שנסגר מעבר לרמה מבטל, ופתיל שחורג וחוזר לא סופר.",
@@ -633,18 +649,30 @@ f_who(bool divP, bool divY, bool divW, bool okN, bool okE, int dn, int de) =>
 // stack below.
 type Brk
     int    dir  = 0
-    string who  = ""
+    int    born = 0   // how many assets held a level for it at birth
     bool   weak = false
     float  nq   = na
     float  es   = na
     float  ym   = na
 
+// Who is STILL defending this break — read off the levels that have not been
+// erased, not off anything frozen at birth.
+f_holds(Brk b) =>
+    w = ""
+    if not na(b.nq)
+        w := "NQ"
+    if not na(b.es)
+        w := w + (w == "" ? "" : " ") + "ES"
+    if not na(b.ym)
+        w := w + (w == "" ? "" : " ") + "YM"
+    w == "NQ ES YM" ? "ALL" : w
+
 // Does this bar finish the break off? Each asset that made the swing defends
 // its own level; a level that gets taken is ERASED, which is what lets the
 // three be taken on three different bars and still add up — the test only ever
-// sees the bar that just closed, so "all three taken" could never be true at
-// one moment otherwise. True = drop it from the stack.
-f_kill(Brk b, float nH, float nL, float eH, float eL, float yH, float yL, bool needAll) =>
+// sees one bar at a time, so a tally across them could never be true at one
+// moment otherwise. True = drop it from the stack.
+f_kill(Brk b, float nH, float nL, float eH, float eL, float yH, float yL, bool major) =>
     hit = false
     if not na(b.nq) and f_taken(b.nq, b.dir, nH, nL)
         b.nq := na
@@ -655,7 +683,12 @@ f_kill(Brk b, float nH, float nL, float eH, float eL, float yH, float yL, bool n
     if not na(b.ym) and f_taken(b.ym, b.dir, yH, yL)
         b.ym := na
         hit := true
-    needAll ? na(b.nq) and na(b.es) and na(b.ym) : hit
+    left   = (na(b.nq) ? 0 : 1) + (na(b.es) ? 0 : 1) + (na(b.ym) ? 0 : 1)
+    gone   = b.born - left
+    // YM alone is never enough, which is the whole point — unless it was the
+    // only one holding a level from the start, where there is no majority.
+    onlyYM = left == 1 and not na(b.ym) and b.born > 1
+    major ? (left == 0 or gone * 2 > b.born or onlyYM) : hit
 
 // One step per closed bar of that timeframe. Invalidation is checked before
 // detection, so a level taken and a fresh swing on the same bar resolve in
@@ -717,7 +750,7 @@ f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW) =>
                 gY   = bear ? hiY : loY
 
                 array.unshift(st, Brk.new(bear ? -1 : 1,
-                     f_who(divP, divY, divW, okN, okE, int(n.d2), int(e.d2)),
+                     (gN ? 1 : 0) + (gE ? 1 : 0) + (gY ? 1 : 0),
                      divW,
                      gN ? (bear ? n.hi2 : n.lo2) : na,
                      gE ? (bear ? e.hi2 : e.lo2) : na,
@@ -733,7 +766,7 @@ f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW) =>
         if s.live
             top = array.get(st, 0)
             s.dir  := top.dir
-            s.who  := top.who
+            s.who  := f_holds(top)
             s.weak := top.weak
         s.isGone := hadLive and not s.live
     s.live
@@ -755,7 +788,7 @@ f_cut(MtfSt s, array<Brk> st, AB n, AB e, AB y) =>
         else
             top = array.get(st, 0)
             s.dir  := top.dir
-            s.who  := top.who
+            s.who  := f_holds(top)
             s.weak := top.weak
     s.live
 
