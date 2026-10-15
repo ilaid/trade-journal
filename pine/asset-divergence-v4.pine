@@ -1,6 +1,14 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.21
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.22
 // Pine Script V5
+//
+// v5.22 — the pending ◦ is black, not washed-out grey.
+//  #9e9e9e at 25% transparency all but disappeared on a light chart. Black
+//  and opaque by default; it is an input, so a dark theme wants it changed.
+//  One thing it cannot fix: a ◦ riding next to a LIVE break shares that
+//  break's cell, and a Pine table cell carries a single text colour, so there
+//  it comes out in the break's colour. Splitting it into a cell of its own
+//  would cost a column in the line.
 //
 // v5.21 — every asset defends the candle, and NQ+ES decide:
 //  The real fault was upstream of the majority rule. A level was stored only
@@ -203,7 +211,9 @@ i_ext_transp = input.int(45, title="עמעום סימון של נכס אחר", m
 i_show_pending = input.bool(true, title="הצג סימון PCP ממתין (•)",
      tooltip="נר PCP מוכרע רק כשהנר שאחריו נסגר. עד אז הוא מסומן בנקודה עמומה.",
      group=grp_col)
-i_col_pend = input.color(color.new(#9e9e9e, 25), title="צבע PCP ממתין", group=grp_col)
+i_col_pend = input.color(color.new(#000000, 0), title="צבע PCP ממתין",
+     tooltip="צובע את ה-◦ בשורה וגם את הנקודות על הנרות.\nשחור ואטום כברירת מחדל, כי אפור שקוף נבלע בגרף בהיר. על ערכת נושא כהה תחליף לבן.\nכש-◦ מופיע לצד שבירה חיה הוא יוצא בצבע של השבירה — תא בטבלה נושא צבע טקסט אחד.",
+     group=grp_col)
 i_show_pcp_bars = input.bool(false, title="צבע את כל נרות ה-PCP", group=grp_col)
 i_col_pcp  = input.color(color.new(#ffd54f, 80), title="גוון נרות PCP", group=grp_col)
 
