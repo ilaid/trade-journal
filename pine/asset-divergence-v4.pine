@@ -1,6 +1,26 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.20
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.21
 // Pine Script V5
+//
+// v5.21 — every asset defends the candle, and NQ+ES decide:
+//  The real fault was upstream of the majority rule. A level was stored only
+//  for an asset that MADE the swing, so a break born off a YM swing alone had
+//  no level on NQ or ES at all — and an asset with no level can never take
+//  anything. NQ and ES could be long past that candle and the break lived on,
+//  not because they were holding it, but because nobody was watching them.
+//  The swing now decides only WHICH CANDLE and WHICH DIRECTION. After that
+//  every enabled asset defends that candle's own extreme on its own chart,
+//  and the break dies once NQ and ES have both taken it. YM is tracked and
+//  named in the line, and never decides — unless NQ and ES are both switched
+//  off, where there is nobody else to ask.
+//  Making no swing there means nothing either way: an asset that never swung
+//  but has not crossed that candle's extreme is still defending it, and that
+//  is exactly why the hourly YM-only PSP stays valid while the other two have
+//  not gone past. Only an actual crossing counts.
+//  hi2 and lo2 are already fetched for all three assets, so this costs no
+//  extra request.security. Still 138 series across 21 calls.
+//  The "YM alone" special case is gone with it — it existed only because a
+//  YM-born break had no other level to count.
 //
 // v5.20 — a majority decides, and the line names who is still defending:
 //  v5.17 let a break live while ANY asset that made it still held its level.
@@ -201,8 +221,8 @@ i_mtf_pad  = input.int(0, title="הרחקת השורה מהקצה (שורות)",
 i_depth    = input.int(5, title="כמה שבירות לזכור לכל מסגרת", minval=1, maxval=10,
      tooltip="שבירה חדשה לא מוחקת את הקודמת. אם החדשה נלקחת, חוזרים להצגת הקודמת — כל עוד הרמה שלה עצמה לא נלקחה.\nהמספר הוא כמה אחורה לשמור.",
      group=grp_mtf)
-i_kill_all = input.bool(true, title="ביטול לפי רוב (YM לבדו לא מחזיק)",
-     tooltip="דלוק (ברירת מחדל): כל רמה שנלקחת נמחקת, והשבירה מתה כשרוב הרמות שאיתן נולדה נעלמו. YM לבדו לא מחזיק שבירה — אלא אם הוא היחיד שהחזיק רמה מלכתחילה.\nכבוי: מספיק שנכס אחד לוקח את הרמה שלו כדי לבטל.\nהשמות בשורה מראים מי עדיין מגן, לא מי יצר את הדיברגנס.",
+i_kill_all = input.bool(true, title="ביטול לפי NQ ו-ES (YM לא מכריע)",
+     tooltip="דלוק (ברירת מחדל): הסווינג קובע איזה נר ואיזה כיוון, ואז כל נכס מגן על הקצה של אותו נר אצלו — גם נכס שלא עשה שם סווינג. השבירה מתה כש-NQ וגם ES חצו אותו. YM נמדד ומוצג אבל לא מכריע.\nכבוי: מספיק שנכס אחד חוצה את הרמה שלו כדי לבטל.\nהשמות בשורה מראים מי עדיין מגן.",
      group=grp_mtf)
 i_inv_wick = input.bool(true, title="בטל שבירה לפי פתיל",
      tooltip="דלוק (ברירת מחדל): מספיק שפתיל חוצה את רמת הסווינג כדי שהשבירה תפסיק להיחשב.\nכבוי: רק נר שנסגר מעבר לרמה מבטל, ופתיל שחורג וחוזר לא סופר.",
@@ -643,13 +663,13 @@ f_who(bool divP, bool divY, bool divW, bool okN, bool okE, int dn, int de) =>
             w := w + (w == "" ? "" : " ") + "YM"
     w
 
-// One stored break: the direction it was taken in, who made it, and the level
-// each asset has to defend. The levels live here rather than beside the state
-// because every break now defends its own — that is the whole point of the
-// stack below.
+// One stored break: the direction, how many of the two deciders were tracked,
+// and the level each asset has to defend — which is the SWING CANDLE's own
+// extreme on that asset's chart, whether or not it made the swing there. The
+// swing picks the candle and the direction; after that everyone defends it.
 type Brk
     int    dir  = 0
-    int    born = 0   // how many assets held a level for it at birth
+    int    core = 0   // how many of NQ/ES were tracked — they are the deciders
     bool   weak = false
     float  nq   = na
     float  es   = na
@@ -683,12 +703,12 @@ f_kill(Brk b, float nH, float nL, float eH, float eL, float yH, float yL, bool m
     if not na(b.ym) and f_taken(b.ym, b.dir, yH, yL)
         b.ym := na
         hit := true
-    left   = (na(b.nq) ? 0 : 1) + (na(b.es) ? 0 : 1) + (na(b.ym) ? 0 : 1)
-    gone   = b.born - left
-    // YM alone is never enough, which is the whole point — unless it was the
-    // only one holding a level from the start, where there is no majority.
-    onlyYM = left == 1 and not na(b.ym) and b.born > 1
-    major ? (left == 0 or gone * 2 > b.born or onlyYM) : hit
+    // NQ and ES are the deciders: once both have left that candle behind, the
+    // break is over, whatever YM is doing. An asset switched off never held a
+    // level, so it reads as "not defending" and simply does not vote. With
+    // both of them off there is nobody else to ask and YM decides alone.
+    coreGone = na(b.nq) and na(b.es)
+    major ? (b.core > 0 ? coreGone : na(b.ym)) : hit
 
 // One step per closed bar of that timeframe. Invalidation is checked before
 // detection, so a level taken and a fresh swing on the same bar resolve in
@@ -745,16 +765,17 @@ f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW) =>
 
             if nHi > 0 or nLo > 0
                 bear = nHi >= nLo          // tie goes to the swing high
-                gN   = bear ? hiN : loN
-                gE   = bear ? hiE : loE
-                gY   = bear ? hiY : loY
 
+                // The swing said which candle and which way. Every enabled
+                // asset now defends that candle's extreme on its own chart —
+                // including the ones that made no swing there, which is the
+                // only way they can ever take it back.
                 array.unshift(st, Brk.new(bear ? -1 : 1,
-                     (gN ? 1 : 0) + (gE ? 1 : 0) + (gY ? 1 : 0),
+                     (i_use_nq ? 1 : 0) + (i_use_es ? 1 : 0),
                      divW,
-                     gN ? (bear ? n.hi2 : n.lo2) : na,
-                     gE ? (bear ? e.hi2 : e.lo2) : na,
-                     gY ? (bear ? y.hi2 : y.lo2) : na))
+                     i_use_nq ? (bear ? n.hi2 : n.lo2) : na,
+                     i_use_es ? (bear ? e.hi2 : e.lo2) : na,
+                     i_use_ym ? (bear ? y.hi2 : y.lo2) : na))
                 while array.size(st) > i_depth
                     array.pop(st)
                 s.isNew := true
