@@ -1,6 +1,26 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.29
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.30
 // Pine Script V5
+//
+// v5.30 — Quarterly Theory decides how long a PSP lives and whether it counts.
+//  Every timeframe compares the quarters of a larger cycle — its container —
+//  and when the container rolls, everything resets. So a break now carries
+//  the container it was born in and dies when that container ends, taken or
+//  not: 1m a 90-minute micro, 5m a 6-hour session, 15m a trading day, 1H a
+//  week, 4H a month (a week belongs to its Tuesday's month), 1D a QT quarter,
+//  1W a QT year (April to March). New York time, the day opening at 18:00.
+//  A PSP born where its timeframe cannot carry a break — Friday on 1H and 4H,
+//  a dead week on 4H, and the first quarter of a container that has no seed
+//  (4H week 1, the first quarter-of-quarter on 1D, April–June on 1W) — never
+//  enters the line and is drawn as a plain dot instead of a marker. The dot
+//  stays until it is taken or its container ends; it never becomes a PSP.
+//  Cost: none. The clock each request carried, time_close[1], becomes time[2]
+//  — the swing candle's own open, which moves exactly when the old clock did
+//  and is also the birth time the container is read from. Still 138 series.
+//  Also: one list of shapes, and a PSP on another asset now has exactly the
+//  same shape as one on the chart's own — only the fade tells them apart.
+//  The debug panel gains a row with the birth date of each timeframe's break
+//  on display, so "which candle is this?" is one screenshot.
 //
 // v5.29 — the marker sits where you tell it to, not where yloc decides.
 //  yloc.abovebar leaves a gap that grows with the label's size, so making the
@@ -277,7 +297,7 @@ i_col_weak = input.color(color.new(#ff9100, 0), title="אות חולשת YM",
      tooltip="צבע נפרד, לא עמעום — עמעום כבר תפוס לסימון שהסווינג קרה בנכס אחר.\nכל סימון בצבע הזה הגיע מחולשת YM ולא מדיברגנס רגיל.",
      group=grp_col)
 i_ext_transp = input.int(45, title="עמעום סימון של נכס אחר", minval=0, maxval=90,
-     tooltip="שקיפות הסימון החלול, שמצויר כשהסווינג קרה בנכס אחר ולא בסימבול שעל הגרף.",
+     tooltip="כשהסווינג קרה בנכס אחר ולא בסימבול שעל הגרף, הסימון יוצא באותה צורה בדיוק — רק שקוף יותר. זה המספר.",
      group=grp_col)
 i_show_pending = input.bool(true, title="הצג סימון PCP ממתין (•)",
      tooltip="נר PCP מוכרע רק כשהנר שאחריו נסגר. עד אז הוא מסומן בנקודה עמומה.",
@@ -289,9 +309,9 @@ i_mark_sz = input.string("רגיל", title="גודל הסימון",
      options=["זעיר", "קטן", "רגיל", "גדול", "ענק"],
      tooltip="\"זעיר\" הוא מה שהיה עד עכשיו — על label זה יוצא קטן יותר מאותו שם על plotchar, ולכן הסימונים נראו זעירים.",
      group=grp_col)
-i_mark_gl = input.string("משולש מלא ▲ ▼", title="סגנון הסימון",
-     options=["משולש מלא ▲ ▼", "משולש קטן ▴ ▾", "עיגול ● ○", "יהלום ◆ ◇", "טקסט משלי"],
-     tooltip="הצורה המלאה = הסווינג קרה בנכס שעל הגרף. החלולה = הסווינג קרה בנכס אחר. זה נשמר בכל הסגנונות.\nב\"טקסט משלי\" אתה כותב את שני התווים בעצמך, והחלול מסומן בעמעום בלבד.",
+i_mark_gl = input.string("משולש גדול ▲", title="צורת הסימון",
+     options=["משולש גדול ▲", "משולש קטן ▴", "עיגול ●", "נקודה •", "ריבוע ■", "יהלום ◆", "חץ ⬇", "כוכב ★", "איקס ✕", "טקסט משלי"],
+     tooltip="אותה צורה לסווינג בנכס שעל הגרף ולסווינג בנכס אחר — ההבדל היחיד הוא העמעום.\nמשולשים: ▲ מעל נר דובי, ▼ מתחת לנר שורי. חץ: מצביע אל הנר.\nהגודל נקבע בנפרד.",
      group=grp_col)
 i_mark_tx_bear = input.string("▲", title="טקסט משלי — דובי (מעל הנר)", group=grp_col)
 i_mark_tx_bull = input.string("▼", title="טקסט משלי — שורי (מתחת לנר)", group=grp_col)
@@ -327,6 +347,9 @@ i_depth    = input.int(5, title="כמה שבירות לזכור לכל מסגר�
      group=grp_mtf)
 i_kill_all = input.bool(true, title="ביטול לפי NQ ו-ES (YM לא מכריע)",
      tooltip="דלוק (ברירת מחדל): הסווינג קובע איזה נר ואיזה כיוון, ואז כל נכס מגן על הקצה של אותו נר אצלו — גם נכס שלא עשה שם סווינג. השבירה מתה כש-NQ וגם ES חצו אותו. YM נמדד ומוצג אבל לא מכריע.\nכבוי: מספיק שנכס אחד חוצה את הרמה שלו כדי לבטל.\nהשמות בשורה מראים מי עדיין מגן.",
+     group=grp_mtf)
+i_qt_on    = input.bool(true, title="Quarterly Theory — תפוגה ומשמעות",
+     tooltip="דלוק: שבירה מתה כשהמיכל שלה נגמר, גם אם לא נלקחה — 1m: מיקרו 90 דק׳, 5m: סשן, 15m: יום מסחר, 1H: שבוע, 4H: חודש, יומי: רבעון QT, שבועי: שנת QT.\nPSP שנולד בזמן בלי משמעות — שישי ב-1H וב-4H, שבוע מת ב-4H, שבוע 1 ב-4H, רבע-הרבעון הראשון ביומי, אפריל–יוני בשבועי — לא נכנס לשורה ומסומן בנקודה בלבד.\nשעון ניו יורק, היום מתחיל ב-18:00. מסגרות אחרות (2H, 6H...) לא מושפעות.",
      group=grp_mtf)
 i_inv_wick = input.bool(true, title="בטל שבירה לפי פתיל",
      tooltip="דלוק (ברירת מחדל): מספיק שפתיל חוצה את רמת הסווינג כדי שהשבירה תפסיק להיחשב.\nכבוי: רק נר שנסגר מעבר לרמה מבטל, ופתיל שחורג וחוזר לא סופר.",
@@ -380,6 +403,10 @@ is_1h  = tf_str == "60"
 is_4h  = tf_str == "240"
 is_1d  = tf_str == "D"
 is_1w  = tf_str == "W"
+
+// Which Quarterly Theory ladder the chart's own bars sit on. 0 = none, and a
+// timeframe with no ladder simply never expires and is never muted.
+chKind = is_1m ? 1 : is_5m ? 2 : is_15m ? 3 : is_1h ? 4 : is_4h ? 5 : is_1d ? 6 : is_1w ? 7 : 0
 
 // chartSec lives here rather than down beside the line, because the weakness
 // rule needs it before the detection below.
@@ -469,8 +496,8 @@ is_pcp = div_es_nq or div_ym or div_ymw
 //
 //  The swing is checked on EVERY included asset, not only on the chart
 //  symbol, so a swing that happens on NQ while the chart shows ES is
-//  still marked — just with a hollow marker so it is never confused
-//  with a swing on the bars in front of you.
+//  still marked — just faded, so it is never confused with a swing on the
+//  bars in front of you.
 // ══════════════════════════════════════════════════════════════
 
 f_sw_hi(float h) => h[1] > h[2] and h[1] > h[0]
@@ -592,9 +619,12 @@ type FB
 //  engine steps once per bar on the clock, so a clock that moves first makes
 //  that one step read stale values, and the state then sits wrong until the
 //  next bar. Here they can only move together.
+//  It is time[2], the SWING candle's own open: it moves exactly when a new bar
+//  opens, like time_close[1] did, and it is also the birth time the break's
+//  Quarterly Theory container is read from — one series doing both jobs.
 f_load(AB b, simple string sym, simple string tf) =>
     [tc, d1, d2, swH, swL, hi2, lo2, tkH, tkL] = request.security(sym, tf,
-         [time_close[1],
+         [time[2],
           close[1] > open[1] ? 1.0 : close[1] < open[1] ? -1.0 : na(close[1]) ? na : 0.0,
           close[2] > open[2] ? 1.0 : close[2] < open[2] ? -1.0 : na(close[2]) ? na : 0.0,
           high[2] > high[3] and high[2] > high[1],
@@ -767,6 +797,85 @@ type Brk
     float  nq   = na
     float  es   = na
     float  ym   = na
+    int    cont = na  // the Quarterly Theory container it was born in
+    int    born = na  // the swing candle's open, for the debug row
+
+// ══════════════════════════════════════════════════════════════
+//  QUARTERLY THEORY
+//
+//  Each timeframe compares the four quarters of a larger cycle, its
+//  container. f_cyc reads a timestamp and returns which container it falls in
+//  — an id that only has to be equal for two times in the same container — and
+//  whether a PSP born there means anything at all.
+//
+//      kind  chart  quarters          container        seed (Q1 counts)
+//      1     1m     22.5 min          90-min micro     yes
+//      2     5m     90-min micro      6-hour session   yes
+//      3     15m    6-hour session    trading day      yes
+//      4     1H     day (Mon..Thu)    week             yes — Fri vs Mon
+//      5     4H     week (by Tue)     month            no
+//      6     1D     quarter/4         QT quarter       no
+//      7     1W     QT quarter        QT year (Apr)    no
+//
+//  Muted = blocked outright (Friday on 1H and 4H, a dead week on 4H) or the
+//  first quarter of a container with no seed: with nothing before it in the
+//  same container and nothing carried across, there is nothing to break.
+//
+//  The trading day opens at 18:00 New York. Shifting every time by six hours
+//  turns that into midnight, so the calendar functions read the trading day
+//  directly. DST changes on a Sunday morning, outside the trading week, so
+//  stepping in whole days between Monday and Friday is exact.
+// ══════════════════════════════════════════════════════════════
+
+NY     = "America/New_York"
+DAY_MS = 86400000
+
+f_cyc(int t, int k) =>
+    int  cont = na
+    bool mute = false
+    if not na(t) and k > 0
+        td  = t + 21600000
+        y   = year(td, NY)
+        m   = month(td, NY)
+        w   = dayofweek(td, NY)
+        hh  = hour(td, NY)
+        mod = hh * 60 + minute(td, NY)
+        d0  = timestamp(NY, y, m, dayofmonth(td, NY), 0, 0)
+        mon = d0 - (w - 2) * DAY_MS
+        tue = mon + DAY_MS
+        thu = mon + 3 * DAY_MS
+        if k == 1
+            cont := d0 + math.floor(mod / 90)
+        else if k == 2
+            cont := d0 + math.floor(hh / 6)
+        else if k == 3
+            cont := d0
+        else if k == 4
+            cont := mon
+            mute := w == 6
+        else if k == 5
+            // a week belongs to the month of its Tuesday; it is dead when its
+            // Thursday has already crossed into the next one
+            cont := year(tue, NY) * 12 + month(tue, NY)
+            wk   = math.floor((dayofmonth(tue, NY) - 1) / 7)
+            mute := w == 6 or month(tue, NY) != month(thu, NY) or wk == 0
+        else if k == 6
+            // the real quarter cut into four equal parts, so the last boundary
+            // lands exactly on the quarter's last day
+            qm = math.floor((m - 1) / 3)
+            qs = timestamp(NY, y, qm * 3 + 1, 1, 0, 0)
+            qe = qm == 3 ? timestamp(NY, y + 1, 1, 1, 0, 0) : timestamp(NY, y, qm * 3 + 4, 1, 0, 0)
+            di = math.round((d0 - qs) / DAY_MS)
+            ql = math.round((qe - qs) / DAY_MS)
+            cont := y * 4 + qm
+            mute := math.floor(di * 4 / ql) == 0
+        else if k == 7
+            // QT year opens in April; Q1 is April–June
+            tm = month(tue, NY)
+            ty = year(tue, NY)
+            cont := tm >= 4 ? ty : ty - 1
+            mute := tm >= 4 and tm <= 6
+    [cont, mute]
 
 // Who is STILL defending this break — read off the levels that have not been
 // erased, not off anything frozen at birth.
@@ -806,7 +915,7 @@ f_kill(Brk b, float nH, float nL, float eH, float eL, float yH, float yL, bool m
 // One step per closed bar of that timeframe. Invalidation is checked before
 // detection, so a level taken and a fresh swing on the same bar resolve in
 // the right order.
-f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW) =>
+f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW, int kind, int cNow) =>
     s.isNew  := false
     s.isGone := false
     if not na(t) and t != s.lastT
@@ -856,7 +965,14 @@ f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW) =>
             nHi = (hiN ? 1 : 0) + (hiE ? 1 : 0) + (hiY ? 1 : 0)
             nLo = (loN ? 1 : 0) + (loE ? 1 : 0) + (loY ? 1 : 0)
 
-            if nHi > 0 or nLo > 0
+            // t is the swing candle's own open. A PSP born where this
+            // timeframe cannot carry a break never enters the stack, and one
+            // whose container already ended by the time it was confirmed is
+            // dead on arrival.
+            [bc, bm] = f_cyc(t, kind)
+            live0 = not bm and (na(cNow) or na(bc) or bc == cNow)
+
+            if (nHi > 0 or nLo > 0) and live0
                 bear = nHi >= nLo          // tie goes to the swing high
 
                 // The swing said which candle and which way. Every enabled
@@ -868,7 +984,8 @@ f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW) =>
                      divW,
                      i_use_nq ? (bear ? n.hi2 : n.lo2) : na,
                      i_use_es ? (bear ? e.hi2 : e.lo2) : na,
-                     i_use_ym ? (bear ? y.hi2 : y.lo2) : na))
+                     i_use_ym ? (bear ? y.hi2 : y.lo2) : na,
+                     bc, t))
                 while array.size(st) > i_depth
                     array.pop(st)
                 s.isNew := true
@@ -886,19 +1003,27 @@ f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW) =>
     s.live
 
 // Run EVERY chart bar, not once per timeframe bar: this is what notices a
-// level being taken by a candle that has not closed. It only shortens a
-// break's life, never creates one, so detection is untouched.
-f_cut(MtfSt s, array<Brk> st, AB n, AB e, AB y) =>
-    if i_inv_wick and array.size(st) > 0
+// level being taken by a candle that has not closed, and a container that
+// rolled under a break that was never touched. It only shortens a break's
+// life, never creates one, so detection is untouched.
+// Running out of time is not being broken: only a taken level raises isGone,
+// so the "broken" alert never fires because a week ended.
+f_cut(MtfSt s, array<Brk> st, AB n, AB e, AB y, int cNow) =>
+    if array.size(st) > 0
+        hit = false
         i = 0
         while i < array.size(st)
-            if f_kill(array.get(st, i), n.rnH, n.rnL, e.rnH, e.rnL, y.rnH, y.rnL, i_kill_all)
+            b    = array.get(st, i)
+            expd = not na(cNow) and not na(b.cont) and b.cont != cNow
+            took = i_inv_wick and f_kill(b, n.rnH, n.rnL, e.rnH, e.rnL, y.rnH, y.rnL, i_kill_all)
+            if expd or took
+                hit := hit or took
                 array.remove(st, i)
             else
                 i += 1
         if array.size(st) == 0
             s.live   := false
-            s.isGone := true
+            s.isGone := s.isGone or hit
         else
             top = array.get(st, 0)
             s.dir  := top.dir
@@ -944,20 +1069,37 @@ f_run(nCh, a_nq_h, a_nq_l, true)
 f_run(eCh, a_es_h, a_es_l, true)
 f_run(yCh, a_ym_h, a_ym_l, true)
 
-// 1H and 4H never get the weakness rule; 1D and 1W always do; the chart's own
-// timeframe only when the chart itself is daily or higher.
-f_step(stCh, bCh, time, nCh, eCh, yCh, ymwTfOk)
-f_step(st1h, b1h, t1h, n1h, e1h, y1h, false)
-f_step(st4h, b4h, t4h, n4h, e4h, y4h, false)
-f_step(st1d, b1d, t1d, n1d, e1d, y1d, i_ym_weak)
-f_step(st1w, b1w, t1w, n1w, e1w, y1w, i_ym_weak)
+// The container each engine is in RIGHT NOW, read off the chart bar's own
+// time. A break whose container differs has run out of time.
+qkCh = i_qt_on ? chKind : 0
+qk1h = i_qt_on ? 4 : 0
+qk4h = i_qt_on ? 5 : 0
+qk1d = i_qt_on ? 6 : 0
+qk1w = i_qt_on ? 7 : 0
 
-// …and then let the unfinished bar take whatever it has already reached.
-f_cut(stCh, bCh, nCh, eCh, yCh)
-f_cut(st1h, b1h, n1h, e1h, y1h)
-f_cut(st4h, b4h, n4h, e4h, y4h)
-f_cut(st1d, b1d, n1d, e1d, y1d)
-f_cut(st1w, b1w, n1w, e1w, y1w)
+[cNowCh, mNowCh] = f_cyc(time, qkCh)
+[cNow1h, mNow1h] = f_cyc(time, qk1h)
+[cNow4h, mNow4h] = f_cyc(time, qk4h)
+[cNow1d, mNow1d] = f_cyc(time, qk1d)
+[cNow1w, mNow1w] = f_cyc(time, qk1w)
+
+// 1H and 4H never get the weakness rule; 1D and 1W always do; the chart's own
+// timeframe only when the chart itself is daily or higher. The chart's own
+// clock is time[2] for the same reason the requests carry it: it is the swing
+// candle's open, and it still moves once per chart bar.
+f_step(stCh, bCh, time[2], nCh, eCh, yCh, ymwTfOk, qkCh, cNowCh)
+f_step(st1h, b1h, t1h, n1h, e1h, y1h, false, qk1h, cNow1h)
+f_step(st4h, b4h, t4h, n4h, e4h, y4h, false, qk4h, cNow4h)
+f_step(st1d, b1d, t1d, n1d, e1d, y1d, i_ym_weak, qk1d, cNow1d)
+f_step(st1w, b1w, t1w, n1w, e1w, y1w, i_ym_weak, qk1w, cNow1w)
+
+// …and then let the unfinished bar take whatever it has already reached, and
+// the clock retire whatever has run out of container.
+f_cut(stCh, bCh, nCh, eCh, yCh, cNowCh)
+f_cut(st1h, b1h, n1h, e1h, y1h, cNow1h)
+f_cut(st4h, b4h, n4h, e4h, y4h, cNow4h)
+f_cut(st1d, b1d, n1d, e1d, y1d, cNow1d)
+f_cut(st1w, b1w, n1w, e1w, y1w, cNow1w)
 
 // ══════════════════════════════════════════════════════════════
 //  THE MARKERS ON THE CHART
@@ -979,18 +1121,19 @@ type Mk
     label lb
     Brk   b
     float own = na   // that candle's extreme on THIS chart
+    int   cont = na  // its Quarterly Theory container
 
 var array<Mk> mks = array.new<Mk>()
 
 // Every level keeps being erased as it falls, whichever rule is selected —
 // only the verdict differs, so switching the setting cannot leave a marker
 // in a state the other rules never reach.
-f_mdead(Mk m) =>
+f_mdead(Mk m, int cNow) =>
     f_kill(m.b, nCh.tkH, nCh.tkL, eCh.tkH, eCh.tkL, yCh.tkH, yCh.tkL, false)
     if i_inv_wick
         f_kill(m.b, nCh.rnH, nCh.rnL, eCh.rnH, eCh.rnL, yCh.rnH, yCh.rnL, false)
     // The chart's own candle, straight off the chart's own series. On a
-    // hollow marker the swing was on another asset, but the candle under it
+    // faded marker the swing was on another asset, but the candle under it
     // is still this chart's, and trading through it is still what you see.
     if not na(m.own) and (f_taken(m.own, m.b.dir, high[1], low[1]) or
      (i_inv_wick and f_taken(m.own, m.b.dir, high, low)))
@@ -1000,9 +1143,10 @@ f_mdead(Mk m) =>
     rAll = rCor and na(m.b.ym)
     // Every option is matched by name, so a typo in one cannot quietly fall
     // through into whichever rule happened to be last.
-    i_mark_rule == "הנכס של הגרף" ? rOwn :
+    expd = not na(cNow) and not na(m.cont) and m.cont != cNow
+    expd or (i_mark_rule == "הנכס של הגרף" ? rOwn :
      i_mark_rule == "NQ וגם ES" ? rCor :
-     i_mark_rule == "כל שלושת הנכסים" ? rAll : rOwn
+     i_mark_rule == "כל שלושת הנכסים" ? rAll : rOwn)
 
 // Prune BEFORE drawing. tkH/tkL on the chart's own timeframe is bar[1], which
 // is the swing bar a marker born on this bar sits on — testing a new marker
@@ -1010,7 +1154,7 @@ f_mdead(Mk m) =>
 if i_mark_erase and array.size(mks) > 0
     mi = 0
     while mi < array.size(mks)
-        if f_mdead(array.get(mks, mi))
+        if f_mdead(array.get(mks, mi), cNowCh)
             label.delete(array.get(mks, mi).lb)
             array.remove(mks, mi)
         else
@@ -1024,26 +1168,36 @@ markGap = nz(ta.atr(14)) * i_mark_gap / 100.0
 // One-line statements on purpose — see the note above mtfTop.
 markSz = i_mark_sz == "זעיר" ? size.tiny : i_mark_sz == "קטן" ? size.small : i_mark_sz == "גדול" ? size.large : i_mark_sz == "ענק" ? size.huge : size.normal
 
-// Filled means the swing was on the chart's own asset, hollow means it was on
-// another — the one thing a marker has always said, kept in every shape. The
-// round and diamond shapes carry no direction of their own and do not need to:
-// above the bar or below it has already said which way it points.
-f_glyph(bool bear, bool own) =>
-    i_mark_gl == "משולש מלא ▲ ▼" ? (bear ? (own ? "▲" : "△") : (own ? "▼" : "▽")) :
-     i_mark_gl == "משולש קטן ▴ ▾" ? (bear ? (own ? "▴" : "▵") : (own ? "▾" : "▿")) :
-     i_mark_gl == "עיגול ● ○" ? (own ? "●" : "○") :
-     i_mark_gl == "יהלום ◆ ◇" ? (own ? "◆" : "◇") :
+// One shape for both. Where the swing happened — on the chart's own asset or
+// on another — is carried by the fade alone, which is its own input. The
+// shapes with no direction of their own do not need one: above the bar or
+// below it has already said which way it points.
+f_glyph(bool bear) =>
+    i_mark_gl == "משולש גדול ▲" ? (bear ? "▲" : "▼") :
+     i_mark_gl == "משולש קטן ▴" ? (bear ? "▴" : "▾") :
+     i_mark_gl == "עיגול ●" ? "●" :
+     i_mark_gl == "נקודה •" ? "•" :
+     i_mark_gl == "ריבוע ■" ? "■" :
+     i_mark_gl == "יהלום ◆" ? "◆" :
+     i_mark_gl == "חץ ⬇" ? (bear ? "⬇" : "⬆") :
+     i_mark_gl == "כוכב ★" ? "★" :
+     i_mark_gl == "איקס ✕" ? "✕" :
      i_mark_gl == "טקסט משלי" ? (bear ? i_mark_tx_bear : i_mark_tx_bull) :
-     (bear ? (own ? "▲" : "△") : (own ? "▼" : "▽"))
+     (bear ? "▲" : "▼")
 
-// bear decides which extreme is defended; own decides filled vs hollow,
-// exactly as the four plotchars did.
-f_mark(bool bear, bool own, color c) =>
+// The swing candle is bar[1]; its open is the birth time the container is read
+// from. Muted — a time this timeframe cannot carry a break — draws a plain dot
+// in the pending colour instead of a marker, and is erased by exactly the same
+// rules: taken, or out of container. It never turns into a PSP.
+[mkCont, mkMute] = f_cyc(time[1], qkCh)
+
+// bear decides which extreme is defended and which way the shape points.
+f_mark(bool bear, color c) =>
     lb = label.new(bar_index - 1, bear ? high[1] + markGap : low[1] - markGap,
-     text      = f_glyph(bear, own),
+     text      = mkMute ? "•" : f_glyph(bear),
      style     = label.style_none,
      yloc      = yloc.price,
-     textcolor = c,
+     textcolor = mkMute ? i_col_pend : c,
      size      = markSz)
     array.unshift(mks, Mk.new(lb, Brk.new(bear ? -1 : 1,
      (i_use_nq ? 1 : 0) + (i_use_es ? 1 : 0),
@@ -1051,7 +1205,7 @@ f_mark(bool bear, bool own, color c) =>
      i_use_nq ? (bear ? a_nq_h[1] : a_nq_l[1]) : na,
      i_use_es ? (bear ? a_es_h[1] : a_es_l[1]) : na,
      i_use_ym ? (bear ? a_ym_h[1] : a_ym_l[1]) : na),
-     bear ? high[1] : low[1]))
+     bear ? high[1] : low[1], mkCont))
     // The window, and the reason for it: Pine holds 500 label objects at most,
     // and running into that ceiling would erase markers for no reason at all.
     while array.size(mks) > i_mark_keep
@@ -1059,15 +1213,19 @@ f_mark(bool bear, bool own, color c) =>
         label.delete(old.lb)
     array.size(mks)
 
-if bar_index > 2
+// A swing whose container already ended by the time it was confirmed is not
+// drawn at all — it would only be erased on the next bar.
+mkOk = bar_index > 2 and (na(cNowCh) or na(mkCont) or mkCont == cNowCh)
+
+if mkOk
     if psp_bear_own
-        f_mark(true,  true,  c_bear_own)
+        f_mark(true,  c_bear_own)
     if psp_bear_ext
-        f_mark(true,  false, c_bear_ext)
+        f_mark(true,  c_bear_ext)
     if psp_bull_own
-        f_mark(false, true,  c_bull_own)
+        f_mark(false, c_bull_own)
     if psp_bull_ext
-        f_mark(false, false, c_bull_ext)
+        f_mark(false, c_bull_ext)
 
 // ══════════════════════════════════════════════════════════════
 //  THE LINE
@@ -1346,7 +1504,7 @@ pnlPos = i_pnl_v == "למעלה" ? pnlTop : i_pnl_v == "באמצע" ? pnlMid : p
 pnlUp  = i_pnl_v == "למעלה"
 pnlR0  = pnlUp ? i_pnl_pad : 0
 
-dbgRows = i_debug ? 5 : 0   // NQ, ES, YM, d1, stk
+dbgRows = i_debug ? 6 : 0   // NQ, ES, YM, d1, stk, born
 
 var table pnlTbl = table.new(pnlPos, 2, 6 + dbgRows + i_pnl_pad, border_width = 0)
 
@@ -1375,6 +1533,11 @@ f_stk(array<Brk> st) =>
 
 // The open and close actually read for the last closed bar, to be compared
 // against the same candle on the chart.
+// When the break on display was born — its swing candle's open, New York
+// time. This is what turns "I can't see that one" into a date to scroll to.
+f_born(array<Brk> st) =>
+    array.size(st) == 0 ? "—" : str.format_time(array.get(st, 0).born, "dd/MM HH:mm", NY)
+
 f_oc(float o, float c) =>
     "o" + str.tostring(o, "#.##") + " c" + str.tostring(c, "#.##")
 
@@ -1414,6 +1577,8 @@ if barstate.islast and i_pnl_on
         table.cell(pnlTbl, 1, pnlR0 + 9, f_row3(nCh.d1, eCh.d1, yCh.d1) + "  pnd" + f_flag(stCh.pndOn), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
         table.cell(pnlTbl, 0, pnlR0 + 10, "stk", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
         table.cell(pnlTbl, 1, pnlR0 + 10, "W" + f_stk(b1w) + " D" + f_stk(b1d) + " 4H" + f_stk(b4h) + " 1H" + f_stk(b1h) + " ch" + f_stk(bCh), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 0, pnlR0 + 11, "born", text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
+        table.cell(pnlTbl, 1, pnlR0 + 11, "W " + f_born(b1w) + " · D " + f_born(b1d) + " · 4H " + f_born(b4h) + " · 1H " + f_born(b1h), text_color = i_col_neut, text_size = size.small, bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
 //  ALERTS
