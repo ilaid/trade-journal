@@ -1,6 +1,18 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.30
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.31
 // Pine Script V5
+//
+// v5.31 — the 5m/15m box names who is STILL HOLDING the swing, and only that.
+//  The box read the PSP off the last closed bar and never looked again, so
+//  once a wick took the swing candle's extreme it went on announcing a PSP
+//  that, on the chart you were looking at, was already gone. Its names were
+//  the assets that had diverged, not the ones still defending.
+//  Each request now also reports, per asset, whether the swing candle's
+//  extreme has been crossed since — by the confirming bar or by the one still
+//  forming — and the box applies the line's own rule: names are the assets
+//  still defending, NQ and ES decide, YM never does. A PSP nobody is holding
+//  any more is not shown. Free: the two flags ride inside the number that
+//  already carried the swing (+4 high taken, +8 low taken). Still 138 series.
 //
 // v5.30 — Quarterly Theory decides how long a PSP lives and whether it counts.
 //  Every timeframe compares the quarters of a larger cycle — its container —
@@ -373,7 +385,7 @@ i_fast_on  = input.bool(true, title="הצג התרעת 5m / 15m",
      tooltip="תיבה נפרדת משלה, לא שורת השבירות. מופיעה בכל גרף חוץ ממסגרת ההתרעה עצמה — 5 דקות לא תוצג על גרף 5 דקות, 15 דקות לא על גרף 15 דקות.\nנעלמת מעצמה בסגירת הנר הבא של אותה מסגרת.",
      group=grp_fast)
 i_fast_pcp = input.bool(true, title="כלול גם PCP (דיברגנס בלי סווינג)",
-     tooltip="PSP מוצג בצבע עם ⚡. PCP מוצג באפור עם ◦, ומופיע נר אחד מוקדם יותר כי הוא לא מחכה לסווינג.\nPCP הרבה יותר שכיח — כבה את זה אם זה מרעיש.",
+     tooltip="PSP מוצג בצבע עם ⚡, והשמות לידו הם הנכסים שעוד לא חצו את הקצה של נר הסווינג — כמו בשורה. PSP שאף אחד כבר לא מחזיק לא מוצג.\nPCP מוצג באפור עם ◦, ומופיע נר אחד מוקדם יותר כי הוא לא מחכה לסווינג.\nPCP הרבה יותר שכיח — כבה את זה אם זה מרעיש.",
      group=grp_fast)
 i_fast_v   = input.string("למעלה", title="גובה ההתרעה",
      options=["למעלה", "באמצע", "למטה"], group=grp_fast)
@@ -604,11 +616,12 @@ type AB
     float rnH = na    // the bar still FORMING, accumulated from chart bars
     float rnL = na
 
-// The fast heads-up keeps no state and tests no level. It needs the last
-// closed bar's direction (that alone decides a PCP), the swing bar's direction
-// and the swing itself — and the two swing booleans are packed into ONE number
-// (+2 for a swing high, +1 for a swing low, so 3 means both) because every
-// element of every request is a full series held over the chart's history.
+// The fast heads-up keeps no state. It needs the last closed bar's direction
+// (that alone decides a PCP), the swing bar's direction, the swing itself, and
+// whether the swing candle's extreme has been crossed since. The four flags
+// are packed into ONE number — +2 swing high, +1 swing low, +4 that high
+// taken, +8 that low taken — because every element of every request is a
+// full series held over the chart's history.
 type FB
     float d1 = na
     float d2 = na
@@ -648,7 +661,7 @@ f_fast(FB b, simple string sym, simple string tf) =>
     [d1, d2, sw] = request.security(sym, tf,
          [close[1] > open[1] ? 1.0 : close[1] < open[1] ? -1.0 : na(close[1]) ? na : 0.0,
           close[2] > open[2] ? 1.0 : close[2] < open[2] ? -1.0 : na(close[2]) ? na : 0.0,
-          (high[2] > high[3] and high[2] > high[1] ? 2.0 : 0.0) + (low[2] < low[3] and low[2] < low[1] ? 1.0 : 0.0)],
+          (high[2] > high[3] and high[2] > high[1] ? 2.0 : 0.0) + (low[2] < low[3] and low[2] < low[1] ? 1.0 : 0.0) + (math.max(i_inv_wick ? high[1] : close[1], i_inv_wick ? high : close) > high[2] ? 4.0 : 0.0) + (math.min(i_inv_wick ? low[1] : close[1], i_inv_wick ? low : close) < low[2] ? 8.0 : 0.0)],
          lookahead = barmerge.lookahead_off,
          gaps      = barmerge.gaps_off)
     b.d1 := d1
@@ -1306,10 +1319,16 @@ dCh = tf_allowed and chIsBig and f_dot(stCh)
 //  this work on a timeframe below the chart's: nothing is accumulated across
 //  history, so nothing can be corrupted by sampling it once per chart bar.
 f_swH(float sw) =>
-    not na(sw) and sw >= 2.0
+    not na(sw) and int(sw) % 4 >= 2
 
 f_swL(float sw) =>
-    not na(sw) and (sw == 1.0 or sw == 3.0)
+    not na(sw) and int(sw) % 2 == 1
+
+// Still defending the swing candle's extreme on its own chart: nothing since
+// — neither the confirming bar nor the one still forming — has crossed it.
+// No data reads as not defending.
+f_hold(float sw, int dir) =>
+    not na(sw) and (dir < 0 ? int(sw) % 8 < 4 : int(sw) < 8)
 
 f_flash(FB n, FB e, FB y) =>
     // ── PSP: the swing bar [2], confirmed by the bar that just closed ──
@@ -1335,9 +1354,15 @@ f_flash(FB n, FB e, FB y) =>
         nLo = (loN ? 1 : 0) + (loE ? 1 : 0) + (loY ? 1 : 0)
 
         if nHi > 0 or nLo > 0
-            on  := true
             dir := nHi >= nLo ? -1 : 1
-            who := f_who(divP, divY, false, okN, okE, int(n.d2), int(e.d2))
+            // The line's rule, applied to a candle five minutes old: every
+            // enabled asset defends it, NQ and ES decide, YM never does.
+            hN = i_use_nq and f_hold(n.sw, dir)
+            hE = i_use_es and f_hold(e.sw, dir)
+            hY = i_use_ym and f_hold(y.sw, dir)
+            core = (i_use_nq ? 1 : 0) + (i_use_es ? 1 : 0)
+            on  := i_kill_all ? (core > 0 ? (hN or hE) : hY) : ((not i_use_nq or hN) and (not i_use_es or hE) and (not i_use_ym or hY))
+            who := hN and hE and hY ? "ALL" : (hN ? "NQ" : "") + (hE ? (hN ? " ES" : "ES") : "") + (hY ? (hN or hE ? " YM" : "YM") : "")
 
     // ── PCP: the bar that just closed, [1]. A PCP is only a disagreement of
     //    direction, so it needs no swing and no confirming bar — it is known
