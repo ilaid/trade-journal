@@ -1,6 +1,12 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.31
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.32
 // Pine Script V5
+//
+// v5.32 — YM counts on the 1m chart too, under the strength rule only.
+//  It was switched off on 1m altogether. It now takes part exactly as on 5m
+//  and 15m: YM up while ES and/or NQ are down is a divergence. Weakness stays
+//  daily-and-above, so on 1m it cannot fire. The chart's own engine already
+//  read YM on 1m; this brings the markers in line with it.
 //
 // v5.31 — the 5m/15m box names who is STILL HOLDING the swing, and only that.
 //  The box read the PSP off the last closed bar and never looked again, so
@@ -294,7 +300,7 @@ i_settle   = input.string("כבוי — כמו הגרף", title="Settlement כס
      group=grp_assets)
 
 grp_tf     = "═══  מסגרת הגרף  ═══"
-i_tf_1m    = input.bool(true,  title="1m (ES ו-NQ בלבד)", group=grp_tf)
+i_tf_1m    = input.bool(true,  title="1m",     group=grp_tf)
 i_tf_5m    = input.bool(true,  title="5m",     group=grp_tf)
 i_tf_15m   = input.bool(true,  title="15m",    group=grp_tf)
 i_tf_1h    = input.bool(true,  title="1H",     group=grp_tf)
@@ -482,12 +488,13 @@ ym_dir = f_dir(a_ym_o, a_ym_c)
 //             rules above already fired: if ES and NQ are split, that split is
 //             the signal. Since they must agree for this to be reachable,
 //             "at least one of them up" means both of them up in practice.
-//  1m       : YM is excluded entirely.
+//  1m       : strength only — weakness is daily and above, so it never
+//             reaches a 1m bar.
 // ══════════════════════════════════════════════════════════════
 
 nq_ok = i_use_nq and (not i_ignore_doji or nq_dir != 0)
 es_ok = i_use_es and (not i_ignore_doji or es_dir != 0)
-ym_ok = i_use_ym and not is_1m and (not i_ignore_doji or ym_dir != 0)
+ym_ok = i_use_ym and (not i_ignore_doji or ym_dir != 0)
 
 div_es_nq = nq_ok and es_ok and (nq_dir != es_dir)
 
