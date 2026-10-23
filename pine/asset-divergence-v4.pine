@@ -1,6 +1,13 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.32
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.33
 // Pine Script V5
+//
+// v5.33 — 1H and 4H are never muted; only their container ends them.
+//  v5.30 drew a Friday PSP on 1H, and a 4H PSP on a Friday, in a dead week or
+//  in week 1, as a plain dot and kept it out of the line. That was wrong for
+//  how these are traded: a PSP on either timeframe is an ordinary PSP, alive
+//  until it is taken or its container ends — the week on 1H, the month on 4H.
+//  Daily and weekly keep their muting unchanged.
 //
 // v5.32 — YM counts on the 1m chart too, under the strength rule only.
 //  It was switched off on 1m altogether. It now takes part exactly as on 5m
@@ -367,7 +374,7 @@ i_kill_all = input.bool(true, title="ביטול לפי NQ ו-ES (YM לא מכר�
      tooltip="דלוק (ברירת מחדל): הסווינג קובע איזה נר ואיזה כיוון, ואז כל נכס מגן על הקצה של אותו נר אצלו — גם נכס שלא עשה שם סווינג. השבירה מתה כש-NQ וגם ES חצו אותו. YM נמדד ומוצג אבל לא מכריע.\nכבוי: מספיק שנכס אחד חוצה את הרמה שלו כדי לבטל.\nהשמות בשורה מראים מי עדיין מגן.",
      group=grp_mtf)
 i_qt_on    = input.bool(true, title="Quarterly Theory — תפוגה ומשמעות",
-     tooltip="דלוק: שבירה מתה כשהמיכל שלה נגמר, גם אם לא נלקחה — 1m: מיקרו 90 דק׳, 5m: סשן, 15m: יום מסחר, 1H: שבוע, 4H: חודש, יומי: רבעון QT, שבועי: שנת QT.\nPSP שנולד בזמן בלי משמעות — שישי ב-1H וב-4H, שבוע מת ב-4H, שבוע 1 ב-4H, רבע-הרבעון הראשון ביומי, אפריל–יוני בשבועי — לא נכנס לשורה ומסומן בנקודה בלבד.\nשעון ניו יורק, היום מתחיל ב-18:00. מסגרות אחרות (2H, 6H...) לא מושפעות.",
+     tooltip="דלוק: שבירה מתה כשהמיכל שלה נגמר, גם אם לא נלקחה — 1m: מיקרו 90 דק׳, 5m: סשן, 15m: יום מסחר, 1H: שבוע, 4H: חודש, יומי: רבעון QT, שבועי: שנת QT.\nב-1H וב-4H כל PSP הוא רגיל — כולל שישי, שבוע 1 ושבוע מת — וחי עד שנלקח או עד שהשבוע / החודש נגמר.\nרק ביומי (רבע-הרבעון הראשון) ובשבועי (אפריל–יוני) PSP לא נכנס לשורה ומסומן בנקודה בלבד.\nשעון ניו יורק, היום מתחיל ב-18:00. מסגרות אחרות (2H, 6H...) לא מושפעות.",
      group=grp_mtf)
 i_inv_wick = input.bool(true, title="בטל שבירה לפי פתיל",
      tooltip="דלוק (ברירת מחדל): מספיק שפתיל חוצה את רמת הסווינג כדי שהשבירה תפסיק להיחשב.\nכבוי: רק נר שנסגר מעבר לרמה מבטל, ופתיל שחורג וחוזר לא סופר.",
@@ -828,18 +835,19 @@ type Brk
 //  — an id that only has to be equal for two times in the same container — and
 //  whether a PSP born there means anything at all.
 //
-//      kind  chart  quarters          container        seed (Q1 counts)
-//      1     1m     22.5 min          90-min micro     yes
-//      2     5m     90-min micro      6-hour session   yes
-//      3     15m    6-hour session    trading day      yes
-//      4     1H     day (Mon..Thu)    week             yes — Fri vs Mon
-//      5     4H     week (by Tue)     month            no
-//      6     1D     quarter/4         QT quarter       no
-//      7     1W     QT quarter        QT year (Apr)    no
+//      kind  chart  quarters          container        muted
+//      1     1m     22.5 min          90-min micro     never
+//      2     5m     90-min micro      6-hour session   never
+//      3     15m    6-hour session    trading day      never
+//      4     1H     day               week             never
+//      5     4H     week (by Tue)     month            never
+//      6     1D     quarter/4         QT quarter       first quarter/4
+//      7     1W     QT quarter        QT year (Apr)    April–June
 //
-//  Muted = blocked outright (Friday on 1H and 4H, a dead week on 4H) or the
-//  first quarter of a container with no seed: with nothing before it in the
-//  same container and nothing carried across, there is nothing to break.
+//  Muted = the first quarter of a container with no seed: with nothing before
+//  it in the same container and nothing carried across, there is nothing to
+//  break. Only the daily and weekly ladders have that; on every other one a
+//  PSP is ordinary until it is taken or its container ends.
 //
 //  The trading day opens at 18:00 New York. Shifting every time by six hours
 //  turns that into midnight, so the calendar functions read the trading day
@@ -863,7 +871,6 @@ f_cyc(int t, int k) =>
         d0  = timestamp(NY, y, m, dayofmonth(td, NY), 0, 0)
         mon = d0 - (w - 2) * DAY_MS
         tue = mon + DAY_MS
-        thu = mon + 3 * DAY_MS
         if k == 1
             cont := d0 + math.floor(mod / 90)
         else if k == 2
@@ -872,13 +879,9 @@ f_cyc(int t, int k) =>
             cont := d0
         else if k == 4
             cont := mon
-            mute := w == 6
         else if k == 5
-            // a week belongs to the month of its Tuesday; it is dead when its
-            // Thursday has already crossed into the next one
+            // a week belongs to the month of its Tuesday
             cont := year(tue, NY) * 12 + month(tue, NY)
-            wk   = math.floor((dayofmonth(tue, NY) - 1) / 7)
-            mute := w == 6 or month(tue, NY) != month(thu, NY) or wk == 0
         else if k == 6
             // the real quarter cut into four equal parts, so the last boundary
             // lands exactly on the quarter's last day
