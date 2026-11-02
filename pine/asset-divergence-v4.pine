@@ -1,6 +1,22 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.34
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.35
 // Pine Script V5
+//
+// v5.35 — it compiles, and it uses far less memory.
+//  v5.34 gave asset 4's per-timeframe objects the names r1h, r4h, r1d, r1w
+//  and rCh — the same names the line's text cells already used. Every one
+//  was a redefinition, and every later use failed with it. The objects are
+//  z1h, z4h, z1d, z1w, zCh (and z15, z5m on the fast side) now.
+//  Memory, for Bar Replay months back:
+//   · max_bars_back = 5000 is gone. It forced a 5000-bar history buffer on
+//     EVERY variable in the script; nothing here looks back more than three
+//     bars, and Pine sizes the buffers itself when it is not set.
+//   · Two candle directions travel as one number (d1*4 + d2), and the two
+//     swing flags as one number, so a stepped request is 7 series instead of
+//     9 and a fast one 2 instead of 3. 193 series → 150 (asset 4 off: ~115).
+//   · The fast 5m/15m/1m readers compute only their last 100 bars — they are
+//     only ever read on the last bar.
+//  Nothing in the detection changed.
 //
 // v5.34 — four assets chosen by hand, a 3–4 pair, and Q1/blocked as a colour.
 //  Assets: four input.symbol fields replace the automatic contract set. The
@@ -289,7 +305,6 @@
 //@version=5
 indicator("Asset Divergence | PCP & PSP v5", shorttitle="ADI v5",
      overlay          = true,
-     max_bars_back    = 5000,
      max_labels_count = 500)
 
 // ══════════════════════════════════════════════════════════════
@@ -686,25 +701,31 @@ type FB
     float d2 = na
     float sw = na
 
+// Two candle directions in ONE number, for the same reason. Each direction is
+// a digit 0–3 — 0 down, 1 doji, 2 up, 3 no data — and the pair is d1*4 + d2.
+f_dc(float o, float c) =>
+    c > o ? 2.0 : c < o ? 0.0 : na(c) ? 3.0 : 1.0
+
+f_ud(float q) =>
+    na(q) or q == 3 ? na : q - 1.0
+
 //  The clock rides INSIDE the tuple, as time[2] — the SWING candle's own
 //  open. It moves exactly when a new bar opens, and it is also the birth time
 //  the break's Quarterly Theory container is read from.
 f_load(AB b, simple string sym, simple string tf) =>
-    [tc, d1, d2, swH, swL, hi2, lo2, tkH, tkL] = request.security(sym, tf,
+    [tc, dd, sw, hi2, lo2, tkH, tkL] = request.security(sym, tf,
          [time[2],
-          close[1] > open[1] ? 1.0 : close[1] < open[1] ? -1.0 : na(close[1]) ? na : 0.0,
-          close[2] > open[2] ? 1.0 : close[2] < open[2] ? -1.0 : na(close[2]) ? na : 0.0,
-          high[2] > high[3] and high[2] > high[1],
-          low[2]  < low[3]  and low[2]  < low[1],
+          f_dc(open[1], close[1]) * 4 + f_dc(open[2], close[2]),
+          (high[2] > high[3] and high[2] > high[1] ? 2.0 : 0.0) + (low[2] < low[3] and low[2] < low[1] ? 1.0 : 0.0),
           high[2], low[2],
           i_inv_wick ? high[1] : close[1],
           i_inv_wick ? low[1]  : close[1]],
          lookahead = barmerge.lookahead_off,
          gaps      = barmerge.gaps_off)
-    b.d1  := d1
-    b.d2  := d2
-    b.swH := swH
-    b.swL := swL
+    b.d1  := na(dd) ? na : f_ud(math.floor(dd / 4))
+    b.d2  := na(dd) ? na : f_ud(dd % 4)
+    b.swH := not na(sw) and sw >= 2
+    b.swL := not na(sw) and sw % 2 == 1
     b.hi2 := hi2
     b.lo2 := lo2
     b.tkH := tkH
@@ -712,14 +733,14 @@ f_load(AB b, simple string sym, simple string tf) =>
     tc
 
 f_fast(FB b, simple string sym, simple string tf) =>
-    [d1, d2, sw] = request.security(sym, tf,
-         [close[1] > open[1] ? 1.0 : close[1] < open[1] ? -1.0 : na(close[1]) ? na : 0.0,
-          close[2] > open[2] ? 1.0 : close[2] < open[2] ? -1.0 : na(close[2]) ? na : 0.0,
+    [dd, sw] = request.security(sym, tf,
+         [f_dc(open[1], close[1]) * 4 + f_dc(open[2], close[2]),
           (high[2] > high[3] and high[2] > high[1] ? 2.0 : 0.0) + (low[2] < low[3] and low[2] < low[1] ? 1.0 : 0.0) + (math.max(i_inv_wick ? high[1] : close[1], i_inv_wick ? high : close) > high[2] ? 4.0 : 0.0) + (math.min(i_inv_wick ? low[1] : close[1], i_inv_wick ? low : close) < low[2] ? 8.0 : 0.0)],
-         lookahead = barmerge.lookahead_off,
-         gaps      = barmerge.gaps_off)
-    b.d1 := d1
-    b.d2 := d2
+         lookahead       = barmerge.lookahead_off,
+         gaps            = barmerge.gaps_off,
+         calc_bars_count = 100)
+    b.d1 := na(dd) ? na : f_ud(math.floor(dd / 4))
+    b.d2 := na(dd) ? na : f_ud(dd % 4)
     b.sw := sw
     b.d2
 
@@ -752,31 +773,31 @@ f_fill(AB b, float o, float h, float l, float c) =>
 var AB n1h = AB.new()
 var AB e1h = AB.new()
 var AB y1h = AB.new()
-var AB r1h = AB.new()
+var AB z1h = AB.new()
 var AB n4h = AB.new()
 var AB e4h = AB.new()
 var AB y4h = AB.new()
-var AB r4h = AB.new()
+var AB z4h = AB.new()
 var AB n1d = AB.new()
 var AB e1d = AB.new()
 var AB y1d = AB.new()
-var AB r1d = AB.new()
+var AB z1d = AB.new()
 var AB n1w = AB.new()
 var AB e1w = AB.new()
 var AB y1w = AB.new()
-var AB r1w = AB.new()
+var AB z1w = AB.new()
 var AB nCh = AB.new()
 var AB eCh = AB.new()
 var AB yCh = AB.new()
-var AB rCh = AB.new()
+var AB zCh = AB.new()
 var FB n15 = FB.new()
 var FB e15 = FB.new()
 var FB y15 = FB.new()
-var FB r15 = FB.new()
+var FB z15 = FB.new()
 var FB n5m = FB.new()
 var FB e5m = FB.new()
 var FB y5m = FB.new()
-var FB r5m = FB.new()
+var FB z5m = FB.new()
 // 1m — only for the hub's SFP on a 15m chart (Fill on 15m + PSP two
 // timeframes below). Not shown in the box. Triad only.
 var FB n1m = FB.new()
@@ -786,12 +807,12 @@ var FB y1m = FB.new()
 tn1h = f_load(n1h, tk_nq, "60")
 te1h = f_load(e1h, tk_es, "60")
 ty1h = f_load(y1h, tk_ym, "60")
-f_load(r1h, tk_rt, "60")
+f_load(z1h, tk_rt, "60")
 
 tn4h = f_load(n4h, tk_nq, "240")
 te4h = f_load(e4h, tk_es, "240")
 ty4h = f_load(y4h, tk_ym, "240")
-f_load(r4h, tk_rt, "240")
+f_load(z4h, tk_rt, "240")
 
 // Off = the chart's own timeframe, so the 1D/1W engines are not stepped and
 // not shown below a daily chart.
@@ -802,24 +823,24 @@ tfW = useLong ? "W" : timeframe.period
 tn1d = f_load(n1d, tk_nq, tfD)
 te1d = f_load(e1d, tk_es, tfD)
 ty1d = f_load(y1d, tk_ym, tfD)
-f_load(r1d, tk_rt, tfD)
+f_load(z1d, tk_rt, tfD)
 
 tn1w = f_load(n1w, tk_nq, tfW)
 te1w = f_load(e1w, tk_es, tfW)
 ty1w = f_load(y1w, tk_ym, tfW)
-f_load(r1w, tk_rt, tfW)
+f_load(z1w, tk_rt, tfW)
 
 // The fast timeframes. Read on the last bar only, never stepped through
 // history, so a chart above them is not a problem.
 f_fast(n15, tk_nq, "15")
 f_fast(e15, tk_es, "15")
 f_fast(y15, tk_ym, "15")
-f_fast(r15, tk_rt, "15")
+f_fast(z15, tk_rt, "15")
 
 f_fast(n5m, tk_nq, "5")
 f_fast(e5m, tk_es, "5")
 f_fast(y5m, tk_ym, "5")
-f_fast(r5m, tk_rt, "5")
+f_fast(z5m, tk_rt, "5")
 
 f_fast(n1m, tk_nq, "1")
 f_fast(e1m, tk_es, "1")
@@ -828,7 +849,7 @@ f_fast(y1m, tk_ym, "1")
 f_fill(nCh, a_nq_o, a_nq_h, a_nq_l, a_nq_c)
 f_fill(eCh, a_es_o, a_es_h, a_es_l, a_es_c)
 f_fill(yCh, a_ym_o, a_ym_h, a_ym_l, a_ym_c)
-f_fill(rCh, a_rt_o, a_rt_h, a_rt_l, a_rt_c)
+f_fill(zCh, a_rt_o, a_rt_h, a_rt_l, a_rt_c)
 
 // The clock each engine steps on, taken from whichever asset is enabled.
 t1h = i_use_nq ? tn1h : i_use_es ? te1h : ty1h
@@ -1181,23 +1202,23 @@ rs1w = t1w != st1w.lastT
 f_run(n1h, a_nq_h, a_nq_l, rs1h)
 f_run(e1h, a_es_h, a_es_l, rs1h)
 f_run(y1h, a_ym_h, a_ym_l, rs1h)
-f_run(r1h, a_rt_h, a_rt_l, rs1h)
+f_run(z1h, a_rt_h, a_rt_l, rs1h)
 f_run(n4h, a_nq_h, a_nq_l, rs4h)
 f_run(e4h, a_es_h, a_es_l, rs4h)
 f_run(y4h, a_ym_h, a_ym_l, rs4h)
-f_run(r4h, a_rt_h, a_rt_l, rs4h)
+f_run(z4h, a_rt_h, a_rt_l, rs4h)
 f_run(n1d, a_nq_h, a_nq_l, rs1d)
 f_run(e1d, a_es_h, a_es_l, rs1d)
 f_run(y1d, a_ym_h, a_ym_l, rs1d)
-f_run(r1d, a_rt_h, a_rt_l, rs1d)
+f_run(z1d, a_rt_h, a_rt_l, rs1d)
 f_run(n1w, a_nq_h, a_nq_l, rs1w)
 f_run(e1w, a_es_h, a_es_l, rs1w)
 f_run(y1w, a_ym_h, a_ym_l, rs1w)
-f_run(r1w, a_rt_h, a_rt_l, rs1w)
+f_run(z1w, a_rt_h, a_rt_l, rs1w)
 f_run(nCh, a_nq_h, a_nq_l, true)
 f_run(eCh, a_es_h, a_es_l, true)
 f_run(yCh, a_ym_h, a_ym_l, true)
-f_run(rCh, a_rt_h, a_rt_l, true)
+f_run(zCh, a_rt_h, a_rt_l, true)
 
 // The container each engine is in RIGHT NOW, read off the chart bar's own
 // time. A break whose container differs has run out of time.
@@ -1222,12 +1243,12 @@ if useLong
     f_step(st1d, b1d, t1d, n1d, e1d, y1d, i_ym_weak, qk1d, cNow1d)
     f_step(st1w, b1w, t1w, n1w, e1w, y1w, i_ym_weak, qk1w, cNow1w)
 if usePair
-    f_stepP(psCh, pCh, t2, yCh, rCh, qkCh, cNowCh)
-    f_stepP(ps1h, p1h, t1h, y1h, r1h, qk1h, cNow1h)
-    f_stepP(ps4h, p4h, t4h, y4h, r4h, qk4h, cNow4h)
+    f_stepP(psCh, pCh, t2, yCh, zCh, qkCh, cNowCh)
+    f_stepP(ps1h, p1h, t1h, y1h, z1h, qk1h, cNow1h)
+    f_stepP(ps4h, p4h, t4h, y4h, z4h, qk4h, cNow4h)
     if useLong
-        f_stepP(ps1d, p1d, t1d, y1d, r1d, qk1d, cNow1d)
-        f_stepP(ps1w, p1w, t1w, y1w, r1w, qk1w, cNow1w)
+        f_stepP(ps1d, p1d, t1d, y1d, z1d, qk1d, cNow1d)
+        f_stepP(ps1w, p1w, t1w, y1w, z1w, qk1w, cNow1w)
 
 // …and then let the unfinished bar take whatever it has already reached, and
 // the clock retire whatever has run out of container.
@@ -1238,12 +1259,12 @@ if useLong
     f_cut(st1d, b1d, n1d, e1d, y1d, cNow1d)
     f_cut(st1w, b1w, n1w, e1w, y1w, cNow1w)
 if usePair
-    f_cut(psCh, pCh, yCh, rCh, yCh, cNowCh)
-    f_cut(ps1h, p1h, y1h, r1h, y1h, cNow1h)
-    f_cut(ps4h, p4h, y4h, r4h, y4h, cNow4h)
+    f_cut(psCh, pCh, yCh, zCh, yCh, cNowCh)
+    f_cut(ps1h, p1h, y1h, z1h, y1h, cNow1h)
+    f_cut(ps4h, p4h, y4h, z4h, y4h, cNow4h)
     if useLong
-        f_cut(ps1d, p1d, y1d, r1d, y1d, cNow1d)
-        f_cut(ps1w, p1w, y1w, r1w, y1w, cNow1w)
+        f_cut(ps1d, p1d, y1d, z1d, y1d, cNow1d)
+        f_cut(ps1w, p1w, y1w, z1w, y1w, cNow1w)
 
 // ══════════════════════════════════════════════════════════════
 //  THE MARKERS ON THE CHART
@@ -1285,9 +1306,9 @@ t1  = time[1]
 // only the verdict differs.
 f_mdead(Mk m, int cNow) =>
     if m.b.pair
-        f_kill(m.b, yCh.tkH, yCh.tkL, rCh.tkH, rCh.tkL, na, na, false)
+        f_kill(m.b, yCh.tkH, yCh.tkL, zCh.tkH, zCh.tkL, na, na, false)
         if i_inv_wick
-            f_kill(m.b, yCh.rnH, yCh.rnL, rCh.rnH, rCh.rnL, na, na, false)
+            f_kill(m.b, yCh.rnH, yCh.rnL, zCh.rnH, zCh.rnL, na, na, false)
     else
         f_kill(m.b, nCh.tkH, nCh.tkL, eCh.tkH, eCh.tkL, yCh.tkH, yCh.tkL, false)
         if i_inv_wick
@@ -1527,8 +1548,8 @@ f_flashP(FB y, FB r) =>
 [on15, dir15, who15, pcp15, pwho15] = f_flash(n15, e15, y15)
 [on5m, dir5m, who5m, pcp5m, pwho5m] = f_flash(n5m, e5m, y5m)
 [on1m, dir1m, who1m, pcp1m, pwho1m] = f_flash(n1m, e1m, y1m)
-[on15p, dir15p, who15p] = f_flashP(y15, r15)
-[on5mp, dir5mp, who5mp] = f_flashP(y5m, r5m)
+[on15p, dir15p, who15p] = f_flashP(y15, z15)
+[on5mp, dir5mp, who5mp] = f_flashP(y5m, z5m)
 
 // The fast swing candle's own open, without another series: the current bar
 // of that timeframe, two bars back. 5m and 15m bars sit on whole multiples of
