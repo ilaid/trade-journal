@@ -1,6 +1,15 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.37
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.38
 // Pine Script V5
+//
+// v5.38 — the 3–4 pair gets its own pending candle.
+//  Until now only the triad announced a candle that closed with a divergence
+//  and is waiting on its swing verdict. The pair now does too: assets 3 and 4
+//  closing in opposite directions shows as "◦ PCP 15m YM RTY" in the pair's
+//  rows of the fast box, and as "4H ◦ YM RTY" (or, next to a standing pair
+//  break, "◦4H YM/RTY") in the line. Same rule as the triad's: it is dropped
+//  the moment neither 3 nor 4 can still make that candle a swing.
+//  The line has room for 21 cells now, so all four entries per timeframe fit.
 //
 // v5.37 — the fast box works in Bar Replay again, and a PCP that can no
 //  longer become a swing stops being announced.
@@ -440,7 +449,7 @@ i_col_pcp  = input.color(color.new(#ffd54f, 80), title="גוון נרות PCP", 
 
 grp_mtf    = "═══  מסגרות זמן גבוהות  ═══"
 i_mtf_on   = input.bool(true, title="הצג שורת שבירות",
-     tooltip="שורה אחת בפינה: השבירה העומדת בכל מסגרת, והשמות הם מי שעדיין מגן עליה.\nלידה ◦ עם שם המסגרת — נר שנסגר עם דיברגנס ומחכה לסגירה הבאה.\nאחריהן תא בצבע הזוג — שבירה של 3–4. השמות בו אף פעם לא כוללים את 1 או 2.\nמוצגות רק מסגרות גבוהות ממסגרת הגרף או שוות לה.",
+     tooltip="שורה אחת בפינה: השבירה העומדת בכל מסגרת, והשמות הם מי שעדיין מגן עליה.\nלידה ◦ עם שם המסגרת — נר שנסגר עם דיברגנס ומחכה לסגירה הבאה.\nאחריהן תא בצבע הזוג — שבירה של 3–4. השמות בו אף פעם לא כוללים את 1 או 2. גם לזוג יש ◦ משלו, עם השמות של 3 ו-4.\nמוצגות רק מסגרות גבוהות ממסגרת הגרף או שוות לה.",
      group=grp_mtf)
 i_mtf_v    = input.string("למטה", title="גובה השורה",
      options=["למעלה", "באמצע", "למטה"], group=grp_mtf)
@@ -473,7 +482,7 @@ i_long_tf  = input.bool(false, title="סרוק גם 1D ו-1W (בגרף מתחת 
 
 grp_fast   = "═══  התרעה מהירה 5m / 15m  ═══"
 i_fast_on  = input.bool(true, title="הצג התרעת 5m / 15m",
-     tooltip="תיבה נפרדת משלה. נעלמת מעצמה בסגירת הנר הבא של אותה מסגרת.\nשורה בצבע הזוג = PSP של 3–4.",
+     tooltip="תיבה נפרדת משלה. נעלמת מעצמה בסגירת הנר הבא של אותה מסגרת.\nשורה בצבע הזוג = PSP של 3–4. ◦ PCP עם השמות של 3 ו-4 = נר של הזוג שמחכה לסגירה הבאה.",
      group=grp_fast)
 i_fast_pcp = input.bool(true, title="כלול גם PCP (דיברגנס בלי סווינג)",
      tooltip="PSP מוצג בצבע עם ⚡, והשמות לידו הם הנכסים שעוד לא חצו את הקצה של נר הסווינג. PSP שאף אחד כבר לא מחזיק לא מוצג.\nPCP מוצג עם ◦, נר אחד מוקדם יותר כי הוא לא מחכה לסווינג. הוא נעלם ברגע שהנר כבר לא יכול להיות סווינג.",
@@ -1224,6 +1233,18 @@ f_stepP(MtfSt s, array<Brk> st, int t, AB y, AB r, int kind, int cNow) =>
                 array.remove(st, i)
             else
                 i += 1
+        // the bar that just closed: 3 and 4 in opposite directions, waiting on
+        // the next close. 3's sides ride in phN/plN, 4's in phE/plE.
+        qY = not na(y.d1) and (not i_ignore_doji or y.d1 != 0)
+        qR = not na(r.d1) and (not i_ignore_doji or r.d1 != 0)
+        s.pndOn  := qY and qR and y.d1 != r.d1
+        s.pndWho := s.pndOn ? nmY + " " + nmR : ""
+        s.phN := s.pndOn and y.cH ? y.tkH : na
+        s.plN := s.pndOn and y.cL ? y.tkL : na
+        s.phE := s.pndOn and r.cH ? r.tkH : na
+        s.plE := s.pndOn and r.cL ? r.tkL : na
+        s.phY := na
+        s.plY := na
         okY = not na(y.d2) and (not i_ignore_doji or y.d2 != 0)
         okR = not na(r.d2) and (not i_ignore_doji or r.d2 != 0)
         if okY and okR and y.d2 != r.d2
@@ -1371,6 +1392,13 @@ f_pnd(st4h, n4h, e4h, y4h)
 if useLong
     f_pnd(st1d, n1d, e1d, y1d)
     f_pnd(st1w, n1w, e1w, y1w)
+if usePair
+    f_pnd(psCh, yCh, zCh, yCh)
+    f_pnd(ps1h, y1h, z1h, y1h)
+    f_pnd(ps4h, y4h, z4h, y4h)
+    if useLong
+        f_pnd(ps1d, y1d, z1d, y1d)
+        f_pnd(ps1w, y1w, z1w, y1w)
 
 f_cut(stCh, bCh, nCh, eCh, yCh, cNowCh)
 f_cut(st1h, b1h, n1h, e1h, y1h, cNow1h)
@@ -1558,9 +1586,9 @@ f_arrow(MtfSt s) =>
 f_rec(MtfSt s, string nm) =>
     s.live ? nm + " " + f_arrow(s) + " " + s.who : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
 
-// The pair's cell: a standing break only.
+// The pair's cell: a standing break, or — with nothing standing — its ◦.
 f_recP(MtfSt s, string nm) =>
-    s.live ? nm + " " + f_arrow(s) + " " + s.who : ""
+    s.live ? nm + " " + f_arrow(s) + " " + s.who : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
 
 // A ◦ that needs its own cell: a break on display AND a new candle waiting.
 f_dot(MtfSt s) =>
@@ -1587,6 +1615,15 @@ d1d = sh1d and f_dot(st1d)
 d4h = sh4h and f_dot(st4h)
 d1h = sh1h and f_dot(st1h)
 dCh = tf_allowed and chIsBig and f_dot(stCh)
+
+// The pair's ◦ beside a standing pair break — named, so it cannot be read as
+// the triad's.
+pairNm = nmY + "/" + nmR
+dp1w = usePair and sh1w and f_dot(ps1w)
+dp1d = usePair and sh1d and f_dot(ps1d)
+dp4h = usePair and sh4h and f_dot(ps4h)
+dp1h = usePair and sh1h and f_dot(ps1h)
+dpCh = usePair and tf_allowed and chIsBig and f_dot(psCh)
 
 // ── the fast heads-up ──
 //  Deliberately NOT the carried-state engine. A PSP is a function of three
@@ -1671,13 +1708,18 @@ f_flashP(FB y, FB r) =>
             hR = f_hold(r.sw, dir)
             on  := i_kill_all ? (hY or hR) : (hY and hR)
             who := (hY ? nmY : "") + (hR ? (hY ? " " : "") + nmR : "")
-    [on, dir, who]
+    // ── PCP: the bar that just closed, while 3 or 4 can still swing on it.
+    qY = usePair and not na(y.d1) and (not i_ignore_doji or y.d1 != 0)
+    qR = usePair and not na(r.d1) and (not i_ignore_doji or r.d1 != 0)
+    pOn  = qY and qR and y.d1 != r.d1 and (f_canF(y.sw) or f_canF(r.sw))
+    pWho = pOn ? nmY + " " + nmR : ""
+    [on, dir, who, pOn, pWho]
 
 [on15, dir15, who15, pcp15, pwho15] = f_flash(n15, e15, y15)
 [on5m, dir5m, who5m, pcp5m, pwho5m] = f_flash(n5m, e5m, y5m)
 [on1m, dir1m, who1m, pcp1m, pwho1m] = f_flash(n1m, e1m, y1m)
-[on15p, dir15p, who15p] = f_flashP(y15, z15)
-[on5mp, dir5mp, who5mp] = f_flashP(y5m, z5m)
+[on15p, dir15p, who15p, pcp15p, pwho15p] = f_flashP(y15, z15)
+[on5mp, dir5mp, who5mp, pcp5mp, pwho5mp] = f_flashP(y5m, z5m)
 
 // The fast swing candle's own open, without another series: the current bar
 // of that timeframe, two bars back. 1m, 5m and 15m bars sit on whole multiples
@@ -1712,7 +1754,7 @@ mtfUp  = i_mtf_v == "למעלה"
 mtfRow = mtfUp ? i_mtf_pad : 0
 
 // One cell per entry, because a cell carries a single text colour.
-var table mtfTbl = table.new(mtfPos, 18, 1 + i_mtf_pad, border_width = 0)
+var table mtfTbl = table.new(mtfPos, 22, 1 + i_mtf_pad, border_width = 0)
 
 c_clear = color.new(color.black, 100)
 
@@ -1737,32 +1779,42 @@ if barstate.islast and i_mtf_on
             col := f_put(col, "◦1W", i_col_pend)
     if rp1w != ""
         col := f_put(col, rp1w, f_col(ps1w))
+        if dp1w
+            col := f_put(col, "◦1W " + pairNm, i_col_pend)
     if r1d != ""
         col := f_put(col, r1d, f_col(st1d))
         if d1d
             col := f_put(col, "◦1D", i_col_pend)
     if rp1d != ""
         col := f_put(col, rp1d, f_col(ps1d))
+        if dp1d
+            col := f_put(col, "◦1D " + pairNm, i_col_pend)
     if r4h != ""
         col := f_put(col, r4h, f_col(st4h))
         if d4h
             col := f_put(col, "◦4H", i_col_pend)
     if rp4h != ""
         col := f_put(col, rp4h, f_col(ps4h))
+        if dp4h
+            col := f_put(col, "◦4H " + pairNm, i_col_pend)
     if r1h != ""
         col := f_put(col, r1h, f_col(st1h))
         if d1h
             col := f_put(col, "◦1H", i_col_pend)
     if rp1h != ""
         col := f_put(col, rp1h, f_col(ps1h))
+        if dp1h
+            col := f_put(col, "◦1H " + pairNm, i_col_pend)
     if rCh != ""
         col := f_put(col, rCh, f_col(stCh))
         if dCh
             col := f_put(col, "◦" + chName, i_col_pend)
     if rpCh != ""
         col := f_put(col, rpCh, f_col(psCh))
-    if col <= 17
-        for k = col to 17
+        if dpCh
+            col := f_put(col, "◦" + chName + " " + pairNm, i_col_pend)
+    if col <= 21
+        for k = col to 21
             table.cell(mtfTbl, k, mtfRow, "", bgcolor = c_clear)
 
 // ══════════════════════════════════════════════════════════════
@@ -1780,19 +1832,21 @@ psp15p = i_fast_on and on15pg
 psp5mp = i_fast_on and on5mpg
 pnd15  = i_fast_on and i_fast_pcp and pcp15 and not on15
 pnd5m  = i_fast_on and i_fast_pcp and pcp5m and not on5m
+pnd15p = i_fast_on and i_fast_pcp and pcp15p and not on15p
+pnd5mp = i_fast_on and i_fast_pcp and pcp5mp and not on5mp
 
 f15  = psp15 ? "⚡ PSP 15m " + (dir15 < 0 ? "▼" : "▲") + " " + who15 : pnd15 ? "◦ PCP 15m " + pwho15 : i_fast_idle ? "15m —" : ""
 f5m  = psp5m ? "⚡ PSP 5m " + (dir5m < 0 ? "▼" : "▲") + " " + who5m : pnd5m ? "◦ PCP 5m " + pwho5m : i_fast_idle ? "5m —" : ""
-f15p = psp15p ? "⚡ PSP 15m " + (dir15p < 0 ? "▼" : "▲") + " " + who15p : ""
-f5mp = psp5mp ? "⚡ PSP 5m " + (dir5mp < 0 ? "▼" : "▲") + " " + who5mp : ""
+f15p = psp15p ? "⚡ PSP 15m " + (dir15p < 0 ? "▼" : "▲") + " " + who15p : pnd15p ? "◦ PCP 15m " + pwho15p : ""
+f5mp = psp5mp ? "⚡ PSP 5m " + (dir5mp < 0 ? "▼" : "▲") + " " + who5mp : pnd5mp ? "◦ PCP 5m " + pwho5mp : ""
 
 f_fcol(bool q, int d) =>
     q ? i_col_q1 : d < 0 ? i_col_bear : i_col_bull
 
 fc15  = psp15 ? f_fcol(q15 and q1Col, dir15) : i_col_pend
 fc5m  = psp5m ? f_fcol(q5m and q1Col, dir5m) : i_col_pend
-fc15p = q15 and q1Col ? i_col_q1 : i_col_pair
-fc5mp = q5m and q1Col ? i_col_q1 : i_col_pair
+fc15p = psp15p ? (q15 and q1Col ? i_col_q1 : i_col_pair) : i_col_pend
+fc5mp = psp5mp ? (q5m and q1Col ? i_col_q1 : i_col_pair) : i_col_pend
 
 // The tint is what makes it read as a notice. Only a PSP gets one.
 fb15  = i_fast_bg and psp15  ? color.new(fc15, 82)  : c_clear
