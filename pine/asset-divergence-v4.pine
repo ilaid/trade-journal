@@ -1,6 +1,26 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.35
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.36
 // Pine Script V5
+//
+// v5.36 — Q1 / blocked becomes a setting, and "own" means part of the break.
+//  One switch, three states, for a PSP born in the first quarter of its
+//  container or in a blocked time:
+//   · "בצבע נפרד" — what v5.34 did: an ordinary PSP everywhere, in the Q1 colour.
+//   · "רגיל"      — an ordinary PSP everywhere, in its ordinary colour.
+//   · "לא קיים"   — it never enters anything: no marker, no line, no stack, no
+//     fast box, no alert, no hub. An older break underneath stays on display.
+//  A solid ("own") triad marker needed only a swing on the chart's symbol, so
+//  on an RTY chart — or any chart outside the triad — a triad PCP plus an RTY
+//  swing drew a full triad PSP although RTY is not in the triad, and on a YM
+//  chart a YM swing counted even when only NQ and ES diverged. The chart's
+//  swing now counts as the triad's own only when the chart is an asset that
+//  takes part: 1 or 2 when included, 3 only when 3 is the one that diverged —
+//  exactly the rule the faded ("ext") markers already used. The 3–4 pair is
+//  unchanged: a pair PSP still shows on every chart, solid on 3 and 4, faded
+//  on 1 and 2.
+//  Sunday (crypto only) now belongs to the week before it, as in the SSMT and
+//  Fill indicators. Futures are unaffected — Sunday 18:00 is already Monday.
+//  The breaks line in the corner is drawn in the tiny text size.
 //
 // v5.35 — it compiles, and it uses far less memory.
 //  v5.34 gave asset 4's per-timeframe objects the names r1h, r4h, r1d, r1w
@@ -366,7 +386,7 @@ i_col_pair = input.color(color.new(#00c853, 0), title="אות זוג 3–4",
      tooltip="צבע אחיד לשני הכיוונים — הכיוון ידוע מהמיקום מעל או מתחת לנר ומהחץ בשורה.",
      group=grp_col)
 i_col_q1   = input.color(color.new(#aa00ff, 0), title="אות ברבע ראשון / זמן חסום",
-     tooltip="PSP שנולד ברבע הראשון של המיכל שלו, או בזמן חסום (שישי ב-1H; שישי של שבוע 4, שבוע 5 ושבוע מת ב-4H).\nהוא PSP מלא לכל דבר — שורה, תיבה, התראה — רק בצבע הזה. גובר על שאר הצבעים.",
+     tooltip="PSP שנולד ברבע הראשון של המיכל שלו, או בזמן חסום (שישי ב-1H; שישי של שבוע 4, שבוע 5 ושבוע מת ב-4H).\nחל רק כשההגדרה 'PSP ברבע ראשון / זמן חסום' היא 'בצבע נפרד'. גובר על שאר הצבעים.",
      group=grp_col)
 i_ext_transp = input.int(45, title="עמעום סימון של נכס אחר", minval=0, maxval=90,
      tooltip="כשהסווינג קרה בנכס אחר ולא בסימבול שעל הגרף, הסימון יוצא באותה צורה בדיוק — רק שקוף יותר. זה המספר.",
@@ -419,7 +439,11 @@ i_kill_all = input.bool(true, title="ביטול לפי שני המכריעים",
      tooltip="דלוק (ברירת מחדל): הסווינג קובע איזה נר ואיזה כיוון, ואז כל נכס מגן על הקצה של אותו נר אצלו. השבירה מתה כש-1 וגם 2 חצו אותו; נכס 3 נמדד ומוצג אבל לא מכריע. בזוג: כש-3 וגם 4 חצו.\nכבוי: מספיק שנכס אחד חוצה כדי לבטל.",
      group=grp_mtf)
 i_qt_on    = input.bool(true, title="Quarterly Theory — מיכלים ורבע ראשון",
-     tooltip="שבירה מתה כשהמיכל שלה נגמר, גם אם לא נלקחה — 1m: מיקרו 90 דק׳, 5m: סשן, 15m: יום מסחר, 1H: שבוע, 4H: חודש (שבוע 5 ושבוע מת: מיכל לעצמם), יומי: רבעון QT, שבועי: שנת QT, חודשי: מחזור 4 שנים.\nPSP שנולד ברבע הראשון של המיכל או בזמן חסום מקבל את צבע 'רבע ראשון / זמן חסום', ונשאר PSP מלא.\nשעון ניו יורק, היום מתחיל ב-18:00.",
+     tooltip="שבירה מתה כשהמיכל שלה נגמר, גם אם לא נלקחה — 1m: מיקרו 90 דק׳, 5m: סשן, 15m: יום מסחר, 1H: שבוע, 4H: חודש (שבוע 5 ושבוע מת: מיכל לעצמם), יומי: רבעון QT, שבועי: שנת QT, חודשי: מחזור 4 שנים.\nPSP שנולד ברבע הראשון של המיכל או בזמן חסום — לפי ההגדרה שמתחת.\nשעון ניו יורק, היום מתחיל ב-18:00.",
+     group=grp_mtf)
+i_q1_mode  = input.string("בצבע נפרד", title="PSP ברבע ראשון / זמן חסום",
+     options=["בצבע נפרד", "רגיל", "לא קיים"],
+     tooltip="PSP שנולד ברבע הראשון של המיכל שלו, או בזמן חסום (שישי ב-1H; שישי של שבוע 4, שבוע 5 ושבוע מת ב-4H).\n• בצבע נפרד = PSP מלא בכל מקום — סימון, שורה, תיבה, התראה ו-Hub — בצבע 'רבע ראשון / זמן חסום'.\n• רגיל = PSP מלא בכל מקום, בצבע הרגיל שלו.\n• לא קיים = לא נכנס לשום מקום: לא סימון, לא שורה, לא תיבה, לא התראה ולא Hub. שבירה ישנה יותר שמתחתיו נשארת מוצגת.",
      group=grp_mtf)
 i_inv_wick = input.bool(true, title="בטל שבירה לפי פתיל",
      tooltip="דלוק (ברירת מחדל): מספיק שפתיל חוצה את רמת הסווינג כדי שהשבירה תפסיק להיחשב.\nכבוי: רק נר שנסגר מעבר לרמה מבטל.",
@@ -451,6 +475,10 @@ i_fast_idle = input.bool(true, title="החזק את התיבה גם כשאין �
 i_fast_alert = input.bool(true, title="התראה (alert) על PSP מהיר",
      tooltip="שולח alert כשנוצר PSP מהיר. לכל היותר אחת לנר של הגרף.",
      group=grp_fast)
+
+// Q1 / blocked: coloured, ordinary, or not there at all.
+q1Col  = i_q1_mode == "בצבע נפרד"
+q1Drop = i_q1_mode == "לא קיים"
 
 // ══════════════════════════════════════════════════════════════
 //  TIMEFRAME GATE  (chart drawing only — the corner line is independent)
@@ -601,16 +629,26 @@ pcp_at_1  = is_pcp[1]          // immutable — bar[1] is fully closed
 
 psp_base     = tf_allowed and confirmed and pcp_at_1
 
-psp_bear_own = psp_base and own_hi
-psp_bear_ext = psp_base and ext_hi and not own_hi
-psp_bull_own = psp_base and own_lo
-psp_bull_ext = psp_base and ext_lo and not own_lo
+// Which asset the chart is — recognised by name, so NQ1! and MNQ1! are the
+// same instrument. Both the ticker and the root are tried.
+chNm  = f_nm(syminfo.ticker)
+chNm2 = f_nm(syminfo.root)
+f_isCh(string nm) => nm == chNm or nm == chNm2
+
+// The chart's own swing is the TRIAD's own only when the chart is an asset
+// that takes part in this divergence: 1 or 2 when included, 3 only when 3 is
+// the one that diverged — the same rule ext_hi / ext_lo apply to every asset.
+// On RTY, or on a symbol outside the set, a triad PSP is always "ext".
+chOwnTri = (f_isCh(nmN) and i_use_nq) or (f_isCh(nmE) and i_use_es) or (f_isCh(nmY) and (div_ym[1] or div_ymw[1]))
+
+psp_bear_own = psp_base and chOwnTri and own_hi
+psp_bear_ext = psp_base and ext_hi and not psp_bear_own
+psp_bull_own = psp_base and chOwnTri and own_lo
+psp_bull_ext = psp_base and ext_lo and not psp_bull_own
 
 // The pair's swing has to be on 3 or 4. It counts as the chart's own only
-// when the chart IS one of the two — recognised by name, so NQ1! and MNQ1!
-// are the same instrument.
-chNm     = f_nm(syminfo.ticker)
-chIsPair = usePair and (chNm == nmY or chNm == nmR)
+// when the chart IS one of the two.
+chIsPair = usePair and (f_isCh(nmY) or f_isCh(nmR))
 pr_hi    = f_sw_hi(a_ym_h) or f_sw_hi(a_rt_h)
 pr_lo    = f_sw_lo(a_ym_l) or f_sw_lo(a_rt_l)
 
@@ -931,12 +969,15 @@ type Brk
 //
 //  Week 5 and a dead week are each a container of their own — they belong to
 //  neither the month before nor the month after.
-//  Such a PSP is an ordinary PSP drawn in its own colour; nothing is dropped.
+//  What happens to such a PSP is the i_q1_mode setting.
 //
 //  The trading day opens at 18:00 New York. Shifting every time by six hours
 //  turns that into midnight, so the calendar functions read the trading day
 //  directly. DST changes on a Sunday morning, outside the trading week, so
 //  stepping in whole days between Monday and Friday is exact.
+//  Sunday 18:00 shifts to Monday, so for futures Sunday never appears; on a
+//  24/7 market a Sunday trading day belongs to the week BEFORE it, as in the
+//  SSMT and Fill indicators.
 // ══════════════════════════════════════════════════════════════
 
 NY     = "America/New_York"
@@ -953,7 +994,8 @@ f_cyc(int t, int k) =>
         hh   = hour(td, NY)
         mod  = hh * 60 + minute(td, NY)
         d0   = timestamp(NY, y, m, dayofmonth(td, NY), 0, 0)
-        mon  = d0 - (w - 2) * DAY_MS
+        dsm  = w == dayofweek.sunday ? 6 : w - 2
+        mon  = d0 - dsm * DAY_MS
         tue  = mon + DAY_MS
         thu  = mon + 3 * DAY_MS
         fri  = w == dayofweek.friday
@@ -1100,10 +1142,11 @@ f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW, int kind, i
             nLo = (loN ? 1 : 0) + (loE ? 1 : 0) + (loY ? 1 : 0)
 
             // t is the swing candle's own open. One whose container already
-            // ended by the time it was confirmed is dead on arrival.
+            // ended by the time it was confirmed is dead on arrival. One born
+            // in Q1 / a blocked time does not exist when the setting says so.
             [bc, bq] = f_cyc(t, kind)
 
-            if (nHi > 0 or nLo > 0) and (na(cNow) or na(bc) or bc == cNow)
+            if (nHi > 0 or nLo > 0) and (na(cNow) or na(bc) or bc == cNow) and not (q1Drop and bq)
                 bear = nHi >= nLo          // tie goes to the swing high
                 array.unshift(st, Brk.new(bear ? -1 : 1,
                      (i_use_nq ? 1 : 0) + (i_use_es ? 1 : 0),
@@ -1138,7 +1181,7 @@ f_stepP(MtfSt s, array<Brk> st, int t, AB y, AB r, int kind, int cNow) =>
             nHi = (y.swH ? 1 : 0) + (r.swH ? 1 : 0)
             nLo = (y.swL ? 1 : 0) + (r.swL ? 1 : 0)
             [bc, bq] = f_cyc(t, kind)
-            if (nHi > 0 or nLo > 0) and (na(cNow) or na(bc) or bc == cNow)
+            if (nHi > 0 or nLo > 0) and (na(cNow) or na(bc) or bc == cNow) and not (q1Drop and bq)
                 bear = nHi >= nLo
                 array.unshift(st, Brk.new(bear ? -1 : 1, 2, false,
                      bear ? y.hi2 : y.lo2,
@@ -1356,11 +1399,12 @@ f_glyph(bool bear) =>
      (bear ? "▲" : "▼")
 
 // The swing candle's container, and whether it is a first quarter or a
-// blocked time — in which case the marker takes that colour instead.
+// blocked time — in which case the marker takes that colour instead, or does
+// not exist at all, as the setting says.
 [mkCont, mkQ1] = f_cyc(t1, qkCh)
 
 f_mark(bool bear, bool own, color c, bool pair, float l1, float l2, float l3, int core) =>
-    col = mkQ1 ? color.new(i_col_q1, own ? 0 : i_ext_transp) : c
+    col = mkQ1 and q1Col ? color.new(i_col_q1, own ? 0 : i_ext_transp) : c
     array.unshift(mks, Mk.new(bar_index - 1, bear ? cH1 + markGap : cL1 - markGap, f_glyph(bear), col,
      Brk.new(bear ? -1 : 1, core, wk1 and not pair, l1, l2, l3, mkCont, t1, mkQ1, pair),
      bear ? cH1 : cL1, mkCont))
@@ -1372,8 +1416,9 @@ f_mark(bool bear, bool own, color c, bool pair, float l1, float l2, float l3, in
 core3 = (i_use_nq ? 1 : 0) + (i_use_es ? 1 : 0)
 
 // A swing whose container already ended by the time it was confirmed is not
-// kept at all — it would only be erased on the next bar.
-mkOk = bar_index > 2 and (na(cNowCh) or na(mkCont) or mkCont == cNowCh)
+// kept at all — it would only be erased on the next bar. Neither is a Q1 /
+// blocked one when the setting says it does not exist.
+mkOk = bar_index > 2 and (na(cNowCh) or na(mkCont) or mkCont == cNowCh) and not (q1Drop and mkQ1)
 
 if mkOk
     if psp_bear_own
@@ -1444,9 +1489,9 @@ f_recP(MtfSt s, string nm) =>
 f_dot(MtfSt s) =>
     i_show_pending and s.live and s.pndOn
 
-// First quarter / blocked wins over every other colour.
+// First quarter / blocked wins over every other colour — when it is coloured.
 f_col(MtfSt s) =>
-    s.live ? (s.q1 ? i_col_q1 : s.pair ? i_col_pair : s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull) : i_col_pend
+    s.live ? (s.q1 and q1Col ? i_col_q1 : s.pair ? i_col_pair : s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull) : i_col_pend
 
 r1w = sh1w ? f_rec(st1w, "1W") : ""
 r1d = sh1d ? f_rec(st1d, "1D") : ""
@@ -1552,14 +1597,24 @@ f_flashP(FB y, FB r) =>
 [on5mp, dir5mp, who5mp] = f_flashP(y5m, z5m)
 
 // The fast swing candle's own open, without another series: the current bar
-// of that timeframe, two bars back. 5m and 15m bars sit on whole multiples of
-// their length from the epoch, and on a closed market the last bar's close
+// of that timeframe, two bars back. 1m, 5m and 15m bars sit on whole multiples
+// of their length from the epoch, and on a closed market the last bar's close
 // stands in for "now".
 nowT  = math.min(timenow, time_close)
+sw1T  = math.floor((nowT - 1) / 60000) * 60000 - 120000
 sw5T  = math.floor((nowT - 1) / 300000) * 300000 - 600000
 sw15T = math.floor((nowT - 1) / 900000) * 900000 - 1800000
+[c1x, q1m]  = f_cyc(sw1T,  i_qt_on ? 1 : 0)
 [c5x, q5m]  = f_cyc(sw5T,  i_qt_on ? 2 : 0)
 [c15x, q15] = f_cyc(sw15T, i_qt_on ? 3 : 0)
+
+// A fast PSP born in Q1 / a blocked time does not exist when the setting says
+// so — not in the box, not in the alert, not in the hub.
+on15g  = on15  and not (q1Drop and q15)
+on5mg  = on5m  and not (q1Drop and q5m)
+on1mg  = on1m  and not (q1Drop and q1m)
+on15pg = on15p and not (q1Drop and q15)
+on5mpg = on5mp and not (q1Drop and q5m)
 
 // Kept as one-line statements on purpose: Pine treats a continuation line
 // indented by any multiple of four spaces as the start of a block, so a
@@ -1579,18 +1634,18 @@ var table mtfTbl = table.new(mtfPos, 18, 1 + i_mtf_pad, border_width = 0)
 c_clear = color.new(color.black, 100)
 
 f_put(int col, string tx, color c) =>
-    table.cell(mtfTbl, col, mtfRow, tx, text_color = c, text_size = size.small, bgcolor = c_clear)
+    table.cell(mtfTbl, col, mtfRow, tx, text_color = c, text_size = size.tiny, bgcolor = c_clear)
     col + 1
 
 if barstate.islast and i_mtf_on
     if i_mtf_pad > 0
         for k = 0 to i_mtf_pad - 1
             table.cell(mtfTbl, 0, mtfUp ? k : 1 + k, " ",
-                 text_size = size.small, bgcolor = c_clear)
+                 text_size = size.tiny, bgcolor = c_clear)
 
     anything = r1w != "" or r1d != "" or r4h != "" or r1h != "" or rCh != "" or rp1w != "" or rp1d != "" or rp4h != "" or rp1h != "" or rpCh != ""
     table.cell(mtfTbl, 0, mtfRow, anything ? "ADI" : "", text_color = i_col_neut,
-         text_size = size.small, bgcolor = c_clear)
+         text_size = size.tiny, bgcolor = c_clear)
 
     col = 1
     if r1w != ""
@@ -1636,10 +1691,10 @@ if barstate.islast and i_mtf_on
 //  The pair has its own rows, in the pair colour.
 // ══════════════════════════════════════════════════════════════
 
-psp15  = i_fast_on and on15
-psp5m  = i_fast_on and on5m
-psp15p = i_fast_on and on15p
-psp5mp = i_fast_on and on5mp
+psp15  = i_fast_on and on15g
+psp5m  = i_fast_on and on5mg
+psp15p = i_fast_on and on15pg
+psp5mp = i_fast_on and on5mpg
 pnd15  = i_fast_on and i_fast_pcp and pcp15 and not on15
 pnd5m  = i_fast_on and i_fast_pcp and pcp5m and not on5m
 
@@ -1651,10 +1706,10 @@ f5mp = psp5mp ? "⚡ PSP 5m " + (dir5mp < 0 ? "▼" : "▲") + " " + who5mp : ""
 f_fcol(bool q, int d) =>
     q ? i_col_q1 : d < 0 ? i_col_bear : i_col_bull
 
-fc15  = psp15 ? f_fcol(q15, dir15) : i_col_pend
-fc5m  = psp5m ? f_fcol(q5m, dir5m) : i_col_pend
-fc15p = q15 ? i_col_q1 : i_col_pair
-fc5mp = q5m ? i_col_q1 : i_col_pair
+fc15  = psp15 ? f_fcol(q15 and q1Col, dir15) : i_col_pend
+fc5m  = psp5m ? f_fcol(q5m and q1Col, dir5m) : i_col_pend
+fc15p = q15 and q1Col ? i_col_q1 : i_col_pair
+fc5mp = q5m and q1Col ? i_col_q1 : i_col_pair
 
 // The tint is what makes it read as a notice. Only a PSP gets one.
 fb15  = i_fast_bg and psp15  ? color.new(fc15, 82)  : c_clear
@@ -1744,8 +1799,8 @@ if i_fast_on and i_fast_alert and fastTx != ""
 //  4H and 1H come from the triad's stepped stacks, so they are alive until
 //  taken or their container ends. 15m, 5m and 1m come from the fast reader:
 //  a PSP there stands until the next close of its timeframe. The 3–4 pair is
-//  not exported. The full layout is in qt-system/docs/HUB.md and must match
-//  the hub.
+//  not exported. A Q1 / blocked PSP that "does not exist" is not exported
+//  either. The full layout is in qt-system/docs/HUB.md and must match the hub.
 // ══════════════════════════════════════════════════════════════
 
 // The newest live break in one direction — the stack is newest first.
@@ -1765,9 +1820,9 @@ f_hxFast(bool on, int dir) =>
 
 hx4h = sh4h ? f_hxStk(b4h, -1, 14400000) * 100 + f_hxStk(b4h, 1, 14400000) : 9999
 hx1h = sh1h ? f_hxStk(b1h, -1, 3600000) * 100 + f_hxStk(b1h, 1, 3600000) : 9999
-hx15 = f_hxFast(on15, dir15)
-hx5m = f_hxFast(on5m, dir5m)
-hx1m = f_hxFast(on1m, dir1m)
+hx15 = f_hxFast(on15g, dir15)
+hx5m = f_hxFast(on5mg, dir5m)
+hx1m = f_hxFast(on1mg, dir1m)
 
 hubA = 310000000000000.0 + hx4h * 100000000.0 + hx1h * 10000.0 + hx15
 hubB = 320000000000000.0 + hx5m * 100000000.0 + hx1m * 10000.0
