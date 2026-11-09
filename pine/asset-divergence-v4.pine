@@ -1,6 +1,23 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.36
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.37
 // Pine Script V5
+//
+// v5.37 — the fast box works in Bar Replay again, and a PCP that can no
+//  longer become a swing stops being announced.
+//  v5.35 limited the fast 5m/15m/1m readers to their last 100 bars
+//  (calc_bars_count). In Bar Replay those are the last 100 bars of the real
+//  data, not of the replay point, so on a 5m chart the 15m row was empty —
+//  no PSP, no PCP — and on a 15m chart the 5m row was. The limit is gone; it
+//  never changed the series count anyway.
+//  A pending PCP — a candle that closed with a divergence, waiting for the
+//  next close to decide its swing — is only worth showing while it can still
+//  BE a swing. It is now dropped, everywhere (the fast box, the ◦ in the line,
+//  the dot on the chart), the moment no asset that takes part can make it
+//  one: on each of them the candle was not above (below) the one before it,
+//  or the candle forming now has already gone past its high (low). The
+//  stepped timeframes read "gone past" off the wick, so under the close rule
+//  only the first half applies there.
+//  Free: the flags ride in the swing number each request already returns.
 //
 // v5.36 — Q1 / blocked becomes a setting, and "own" means part of the break.
 //  One switch, three states, for a PSP born in the first quarter of its
@@ -392,7 +409,7 @@ i_ext_transp = input.int(45, title="עמעום סימון של נכס אחר", m
      tooltip="כשהסווינג קרה בנכס אחר ולא בסימבול שעל הגרף, הסימון יוצא באותה צורה בדיוק — רק שקוף יותר. זה המספר.",
      group=grp_col)
 i_show_pending = input.bool(true, title="הצג סימון PCP ממתין (•)",
-     tooltip="נר PCP מוכרע רק כשהנר שאחריו נסגר. עד אז הוא מסומן בנקודה.",
+     tooltip="נר PCP מוכרע רק כשהנר שאחריו נסגר. עד אז הוא מסומן בנקודה.\nהנקודה נעלמת ברגע שהנר כבר לא יכול להיות סווינג — הנר שאחריו עבר את הגבוה (הנמוך) שלו בכל נכס שמשתתף.",
      group=grp_col)
 i_col_pend = input.color(color.new(#000000, 0), title="צבע PCP ממתין",
      tooltip="צובע את ה-◦ בשורה וגם את הנקודות על הנרות.\nשחור ואטום כברירת מחדל, כי אפור שקוף נבלע בגרף בהיר. על ערכת נושא כהה תחליף לבן.",
@@ -459,7 +476,7 @@ i_fast_on  = input.bool(true, title="הצג התרעת 5m / 15m",
      tooltip="תיבה נפרדת משלה. נעלמת מעצמה בסגירת הנר הבא של אותה מסגרת.\nשורה בצבע הזוג = PSP של 3–4.",
      group=grp_fast)
 i_fast_pcp = input.bool(true, title="כלול גם PCP (דיברגנס בלי סווינג)",
-     tooltip="PSP מוצג בצבע עם ⚡, והשמות לידו הם הנכסים שעוד לא חצו את הקצה של נר הסווינג. PSP שאף אחד כבר לא מחזיק לא מוצג.\nPCP מוצג עם ◦, נר אחד מוקדם יותר כי הוא לא מחכה לסווינג.",
+     tooltip="PSP מוצג בצבע עם ⚡, והשמות לידו הם הנכסים שעוד לא חצו את הקצה של נר הסווינג. PSP שאף אחד כבר לא מחזיק לא מוצג.\nPCP מוצג עם ◦, נר אחד מוקדם יותר כי הוא לא מחכה לסווינג. הוא נעלם ברגע שהנר כבר לא יכול להיות סווינג.",
      group=grp_fast)
 i_fast_v   = input.string("למעלה", title="גובה ההתרעה",
      options=["למעלה", "באמצע", "למטה"], group=grp_fast)
@@ -676,10 +693,21 @@ c_pair_ext = color.new(i_col_pair, i_ext_transp)
 //    barstate.isconfirmed is false. Historical bars are always confirmed.
 pending = tf_allowed and i_show_pending and not confirmed
 
+// Can bar[1] still become a swing on this asset? It has to be above (below)
+// bar[2], and the bar forming now must not have gone past it yet.
+f_canSw(float h, float l) =>
+    (h[1] > h[2] and h < h[1]) or (l[1] < l[2] and l > l[1])
+
+// Every call on every bar, outside any condition, so its history stays whole.
+csN = f_canSw(a_nq_h, a_nq_l)
+csE = f_canSw(a_es_h, a_es_l)
+csY = f_canSw(a_ym_h, a_ym_l)
+pcp1Live = (i_use_nq and csN) or (i_use_es and csE) or ((div_ym[1] or div_ymw[1]) and csY)
+
 plotchar(pending and is_pcp    ? 1 : na, title="PCP Pending — Live Bar",
      char="•", location=location.abovebar, color=i_col_pend, size=size.tiny)
 
-plotchar(pending and is_pcp[1] ? 1 : na, title="PCP Pending — Previous Bar",
+plotchar(pending and is_pcp[1] and pcp1Live ? 1 : na, title="PCP Pending — Previous Bar",
      char="•", location=location.abovebar, color=i_col_pend,
      offset=-1, size=size.tiny)
 
@@ -730,10 +758,13 @@ type AB
     float tkL = na
     float rnH = na    // the bar still FORMING, accumulated from chart bars
     float rnL = na
+    bool  cH  = false // bar[1] is above bar[2] — it could still be a swing high
+    bool  cL  = false // bar[1] is below bar[2] — it could still be a swing low
 
-// The fast heads-up keeps no state. Four flags packed into ONE number — +2
-// swing high, +1 swing low, +4 that high taken, +8 that low taken — because
-// every element of every request is a full series held over the history.
+// The fast heads-up keeps no state. Six flags packed into ONE number — +2
+// swing high, +1 swing low, +4 that high taken, +8 that low taken, +16 bar[1]
+// can still be a swing high, +32 a swing low — because every element of every
+// request is a full series held over the history.
 type FB
     float d1 = na
     float d2 = na
@@ -754,7 +785,7 @@ f_load(AB b, simple string sym, simple string tf) =>
     [tc, dd, sw, hi2, lo2, tkH, tkL] = request.security(sym, tf,
          [time[2],
           f_dc(open[1], close[1]) * 4 + f_dc(open[2], close[2]),
-          (high[2] > high[3] and high[2] > high[1] ? 2.0 : 0.0) + (low[2] < low[3] and low[2] < low[1] ? 1.0 : 0.0),
+          (high[2] > high[3] and high[2] > high[1] ? 2.0 : 0.0) + (low[2] < low[3] and low[2] < low[1] ? 1.0 : 0.0) + (high[1] > high[2] ? 4.0 : 0.0) + (low[1] < low[2] ? 8.0 : 0.0),
           high[2], low[2],
           i_inv_wick ? high[1] : close[1],
           i_inv_wick ? low[1]  : close[1]],
@@ -762,8 +793,10 @@ f_load(AB b, simple string sym, simple string tf) =>
          gaps      = barmerge.gaps_off)
     b.d1  := na(dd) ? na : f_ud(math.floor(dd / 4))
     b.d2  := na(dd) ? na : f_ud(dd % 4)
-    b.swH := not na(sw) and sw >= 2
+    b.swH := not na(sw) and sw % 4 >= 2
     b.swL := not na(sw) and sw % 2 == 1
+    b.cH  := not na(sw) and sw % 8 >= 4
+    b.cL  := not na(sw) and sw >= 8
     b.hi2 := hi2
     b.lo2 := lo2
     b.tkH := tkH
@@ -773,10 +806,9 @@ f_load(AB b, simple string sym, simple string tf) =>
 f_fast(FB b, simple string sym, simple string tf) =>
     [dd, sw] = request.security(sym, tf,
          [f_dc(open[1], close[1]) * 4 + f_dc(open[2], close[2]),
-          (high[2] > high[3] and high[2] > high[1] ? 2.0 : 0.0) + (low[2] < low[3] and low[2] < low[1] ? 1.0 : 0.0) + (math.max(i_inv_wick ? high[1] : close[1], i_inv_wick ? high : close) > high[2] ? 4.0 : 0.0) + (math.min(i_inv_wick ? low[1] : close[1], i_inv_wick ? low : close) < low[2] ? 8.0 : 0.0)],
-         lookahead       = barmerge.lookahead_off,
-         gaps            = barmerge.gaps_off,
-         calc_bars_count = 100)
+          (high[2] > high[3] and high[2] > high[1] ? 2.0 : 0.0) + (low[2] < low[3] and low[2] < low[1] ? 1.0 : 0.0) + (math.max(i_inv_wick ? high[1] : close[1], i_inv_wick ? high : close) > high[2] ? 4.0 : 0.0) + (math.min(i_inv_wick ? low[1] : close[1], i_inv_wick ? low : close) < low[2] ? 8.0 : 0.0) + (high[1] > high[2] and high < high[1] ? 16.0 : 0.0) + (low[1] < low[2] and low > low[1] ? 32.0 : 0.0)],
+         lookahead = barmerge.lookahead_off,
+         gaps      = barmerge.gaps_off)
     b.d1 := na(dd) ? na : f_ud(math.floor(dd / 4))
     b.d2 := na(dd) ? na : f_ud(dd % 4)
     b.sw := sw
@@ -800,6 +832,8 @@ f_fill(AB b, float o, float h, float l, float c) =>
     b.d2  := c[2] > o[2] ? 1.0 : c[2] < o[2] ? -1.0 : na(c[2]) ? na : 0.0
     b.swH := h[2] > h[3] and h[2] > h[1]
     b.swL := l[2] < l[3] and l[2] < l[1]
+    b.cH  := h[1] > h[2]
+    b.cL  := l[1] < l[2]
     b.hi2 := h[2]
     b.lo2 := l[2]
     b.tkH := i_inv_wick ? h[1] : c[1]
@@ -912,6 +946,12 @@ type MtfSt
     bool   pair   = false // a 3–4 break
     bool   pndOn  = false // the bar that just closed is a PCP, verdict not in
     string pndWho = ""
+    float  phN    = na    // that candle's high / low on each asset, kept only
+    float  plN    = na    // while it can still be a swing there
+    float  phE    = na
+    float  plE    = na
+    float  phY    = na
+    float  plY    = na
 
 // Has the level been taken? tkH and tkL are already the right side to compare.
 f_taken(float lvl, int dir, float tkH, float tkL) =>
@@ -1119,6 +1159,15 @@ f_step(MtfSt s, array<Brk> st, int t, AB n, AB e, AB y, bool allowW, int kind, i
         qYw = allowW and qY and y.d1 < 0 and ((qE and e.d1 > 0) or (qN and n.d1 > 0)) and not qP and not qYm
         s.pndOn  := qP or qYm or qYw
         s.pndWho := s.pndOn ? f_who(qP, qYm, qYw, qN, qE, int(n.d1), int(e.d1)) : ""
+        // Only the sides where it could still be a swing are kept. tkH/tkL is
+        // that candle's own high/low under the wick rule.
+        pY = qYm or qYw
+        s.phN := s.pndOn and i_use_nq and n.cH ? n.tkH : na
+        s.plN := s.pndOn and i_use_nq and n.cL ? n.tkL : na
+        s.phE := s.pndOn and i_use_es and e.cH ? e.tkH : na
+        s.plE := s.pndOn and i_use_es and e.cL ? e.tkL : na
+        s.phY := s.pndOn and pY and y.cH ? y.tkH : na
+        s.plY := s.pndOn and pY and y.cL ? y.tkL : na
 
         // ── 3. a new PSP on the swing bar, [2] ──
         okN = i_use_nq and not na(n.d2) and (not i_ignore_doji or n.d2 != 0)
@@ -1192,6 +1241,27 @@ f_stepP(MtfSt s, array<Brk> st, int t, AB y, AB r, int kind, int cNow) =>
                 s.isNew := true
         f_show(s, st)
     s.live
+
+// Run EVERY chart bar: a pending PCP dies once no asset can make it a swing —
+// the forming candle went past its high on every asset that could still make
+// a swing high, and past its low on every one that could make a swing low.
+f_pnd(MtfSt s, AB n, AB e, AB y) =>
+    if s.pndOn
+        if i_inv_wick
+            if not na(s.phN) and n.rnH >= s.phN
+                s.phN := na
+            if not na(s.plN) and n.rnL <= s.plN
+                s.plN := na
+            if not na(s.phE) and e.rnH >= s.phE
+                s.phE := na
+            if not na(s.plE) and e.rnL <= s.plE
+                s.plE := na
+            if not na(s.phY) and y.rnH >= s.phY
+                s.phY := na
+            if not na(s.plY) and y.rnL <= s.plY
+                s.plY := na
+        s.pndOn := not na(s.phN) or not na(s.plN) or not na(s.phE) or not na(s.plE) or not na(s.phY) or not na(s.plY)
+    s.pndOn
 
 // Run EVERY chart bar: this is what notices a level being taken by a candle
 // that has not closed, and a container that rolled under a break that was
@@ -1295,6 +1365,13 @@ if usePair
 
 // …and then let the unfinished bar take whatever it has already reached, and
 // the clock retire whatever has run out of container.
+f_pnd(stCh, nCh, eCh, yCh)
+f_pnd(st1h, n1h, e1h, y1h)
+f_pnd(st4h, n4h, e4h, y4h)
+if useLong
+    f_pnd(st1d, n1d, e1d, y1d)
+    f_pnd(st1w, n1w, e1w, y1w)
+
 f_cut(stCh, bCh, nCh, eCh, yCh, cNowCh)
 f_cut(st1h, b1h, n1h, e1h, y1h, cNow1h)
 f_cut(st4h, b4h, n4h, e4h, y4h, cNow4h)
@@ -1524,7 +1601,11 @@ f_swL(float sw) =>
 // Still defending the swing candle's extreme: nothing since — neither the
 // confirming bar nor the one still forming — has crossed it.
 f_hold(float sw, int dir) =>
-    not na(sw) and (dir < 0 ? int(sw) % 8 < 4 : int(sw) < 8)
+    not na(sw) and (dir < 0 ? int(sw) % 8 < 4 : int(sw) % 16 < 8)
+
+// bar[1] can still become a swing on this asset — high side or low side.
+f_canF(float sw) =>
+    not na(sw) and int(sw) >= 16
 
 f_flash(FB n, FB e, FB y) =>
     // ── PSP: the swing bar [2], confirmed by the bar that just closed ──
@@ -1568,7 +1649,9 @@ f_flash(FB n, FB e, FB y) =>
     qP  = qN and qE and n.d1 != e.d1
     qYm = qY and y.d1 > 0 and ((qE and e.d1 < 0) or (qN and n.d1 < 0))
 
-    pOn  = qP or qYm
+    // …and only while some asset taking part can still make it a swing.
+    pLive = (i_use_nq and f_canF(n.sw)) or (i_use_es and f_canF(e.sw)) or (qYm and f_canF(y.sw))
+    pOn  = (qP or qYm) and pLive
     pWho = pOn ? f_who(qP, qYm, false, qN, qE, int(n.d1), int(e.d1)) : ""
     [on, dir, who, pOn, pWho]
 
