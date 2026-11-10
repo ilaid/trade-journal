@@ -1,6 +1,14 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.38
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.39
 // Pine Script V5
+//
+// v5.39 — each break in the line says when its swing candle was born.
+//  "4H ▼ NQ ES 14:00 Q2": the swing candle's open in New York time, and the
+//  quarter of its container it was born in. Below the daily the time, on 1D
+//  and 1W a short date (every daily candle opens at 18:00, so the hour would
+//  say nothing). The quarter is written only for Q2–Q4 — Q1 and the blocked
+//  times already have a colour of their own. Text only, inside the cell that
+//  was already there; nothing is added to the chart. One switch turns it off.
 //
 // v5.38 — the 3–4 pair gets its own pending candle.
 //  Until now only the triad announced a candle that closed with a divergence
@@ -457,6 +465,9 @@ i_mtf_h    = input.string("שמאל", title="צד השורה",
      options=["שמאל", "מרכז", "ימין"], group=grp_mtf)
 i_mtf_pad  = input.int(0, title="הרחקת השורה מהקצה (שורות)", minval=0, maxval=12,
      tooltip="מוסיף שורות ריקות בין השורה לקצה הגרף, כדי להרים אותה מעל שורה של אינדיקטור אחר שיושב באותה פינה.",
+     group=grp_mtf)
+i_mtf_tm   = input.bool(true, title="שעה ו-Q ליד כל שבירה",
+     tooltip="שעת הפתיחה של נר הסווינג (שעון ניו יורק; ביומי ובשבועי — תאריך), ואיזה רבע של המיכל שלו. רבע נכתב רק ל-Q2 עד Q4 — רבע ראשון וזמן חסום כבר צבועים בצבע משלהם.",
      group=grp_mtf)
 i_depth    = input.int(5, title="כמה שבירות לזכור לכל מסגרת", minval=1, maxval=10,
      tooltip="שבירה חדשה לא מוחקת את הקודמת. אם החדשה נלקחת, חוזרים להצגת הקודמת — כל עוד הרמה שלה עצמה לא נלקחה.",
@@ -953,6 +964,7 @@ type MtfSt
     bool   weak   = false // the break came from the weakness rule
     bool   q1     = false // born in the first quarter or a blocked time
     bool   pair   = false // a 3–4 break
+    int    born   = na    // the swing candle's open, of the break on display
     bool   pndOn  = false // the bar that just closed is a PCP, verdict not in
     string pndWho = ""
     float  phN    = na    // that candle's high / low on each asset, kept only
@@ -1092,6 +1104,41 @@ f_cyc(int t, int k) =>
             q1   := (y - 2023) % 4 == 0
     [cont, q1]
 
+// Which quarter of its container a time falls in — 1 to 4, 5 for Friday on
+// the 1H ladder, 0 where there is no number to give (week 5 and a dead week
+// on 4H, Sunday, a ladder below the line). Read the same way f_cyc reads it.
+f_qn(int t, int k) =>
+    int q = 0
+    if not na(t) and k > 0
+        td  = t + 21600000
+        y   = year(td, NY)
+        m   = month(td, NY)
+        w   = dayofweek(td, NY)
+        d0  = timestamp(NY, y, m, dayofmonth(td, NY), 0, 0)
+        dsm = w == dayofweek.sunday ? 6 : w - 2
+        mon = d0 - dsm * DAY_MS
+        tue = mon + DAY_MS
+        thu = mon + 3 * DAY_MS
+        if k == 4
+            q := w == dayofweek.sunday ? 0 : w - 1
+        else if k == 5
+            dead = month(tue, NY) != month(thu, NY)
+            wkN  = math.floor((dayofmonth(tue, NY) - 1) / 7) + 1
+            q := dead or wkN >= 5 ? 0 : wkN
+        else if k == 6
+            qm = math.floor((m - 1) / 3)
+            qs = timestamp(NY, y, qm * 3 + 1, 1, 0, 0)
+            qe = qm == 3 ? timestamp(NY, y + 1, 1, 1, 0, 0) : timestamp(NY, y, qm * 3 + 4, 1, 0, 0)
+            di = math.round((d0 - qs) / DAY_MS)
+            ql = math.round((qe - qs) / DAY_MS)
+            q := math.floor(di * 4 / ql) + 1
+        else if k == 7
+            tm = month(tue, NY)
+            q := tm >= 4 ? math.floor((tm - 4) / 3) + 1 : 4
+        else if k == 8
+            q := (y - 2023) % 4 + 1
+    q
+
 // Who is STILL defending this break — read off the levels that have not been
 // erased. A triad break always names 1 or 2; a pair break never does.
 f_holds(Brk b) =>
@@ -1140,6 +1187,7 @@ f_show(MtfSt s, array<Brk> st) =>
         s.weak := top.weak
         s.q1   := top.q1
         s.pair := top.pair
+        s.born := top.born
     s.live
 
 // One step per closed bar of that timeframe. Invalidation is checked before
@@ -1581,14 +1629,27 @@ chName = is_1m ? "1m" : is_5m ? "5m" : is_15m ? "15m" : is_1h ? "1H" : is_4h ? "
 f_arrow(MtfSt s) =>
     s.dir < 0 ? "▼" : "▲"
 
+// When the swing candle was born: its open in New York time below the daily,
+// a short date on 1D and up, and the quarter only for Q2–Q4.
+f_tag(MtfSt s, int k, bool intra) =>
+    tg = ""
+    if i_mtf_tm and s.live and not na(s.born)
+        tg := " " + (intra ? str.format_time(s.born, "HH:mm", NY) : str.format_time(s.born + 21600000, "d/M", NY))
+        q = f_qn(s.born, k)
+        if q >= 2 and q <= 4
+            tg := tg + " Q" + str.tostring(q)
+    tg
+
 // The triad's cell: a standing break, or — with nothing standing — the ◦ of
 // a bar that closed with a divergence and is waiting on its swing verdict.
-f_rec(MtfSt s, string nm) =>
-    s.live ? nm + " " + f_arrow(s) + " " + s.who : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
+f_rec(MtfSt s, string nm, string tg) =>
+    s.live ? nm + " " + f_arrow(s) + " " + s.who + tg : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
 
 // The pair's cell: a standing break, or — with nothing standing — its ◦.
-f_recP(MtfSt s, string nm) =>
-    s.live ? nm + " " + f_arrow(s) + " " + s.who : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
+f_recP(MtfSt s, string nm, string tg) =>
+    s.live ? nm + " " + f_arrow(s) + " " + s.who + tg : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
+
+chIntra = chartSec < timeframe.in_seconds("D")
 
 // A ◦ that needs its own cell: a break on display AND a new candle waiting.
 f_dot(MtfSt s) =>
@@ -1598,17 +1659,17 @@ f_dot(MtfSt s) =>
 f_col(MtfSt s) =>
     s.live ? (s.q1 and q1Col ? i_col_q1 : s.pair ? i_col_pair : s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull) : i_col_pend
 
-r1w = sh1w ? f_rec(st1w, "1W") : ""
-r1d = sh1d ? f_rec(st1d, "1D") : ""
-r4h = sh4h ? f_rec(st4h, "4H") : ""
-r1h = sh1h ? f_rec(st1h, "1H") : ""
-rCh = tf_allowed and chIsBig ? f_rec(stCh, chName) : ""
+r1w = sh1w ? f_rec(st1w, "1W", f_tag(st1w, qk1w, false)) : ""
+r1d = sh1d ? f_rec(st1d, "1D", f_tag(st1d, qk1d, false)) : ""
+r4h = sh4h ? f_rec(st4h, "4H", f_tag(st4h, qk4h, true)) : ""
+r1h = sh1h ? f_rec(st1h, "1H", f_tag(st1h, qk1h, true)) : ""
+rCh = tf_allowed and chIsBig ? f_rec(stCh, chName, f_tag(stCh, qkCh, chIntra)) : ""
 
-rp1w = usePair and sh1w ? f_recP(ps1w, "1W") : ""
-rp1d = usePair and sh1d ? f_recP(ps1d, "1D") : ""
-rp4h = usePair and sh4h ? f_recP(ps4h, "4H") : ""
-rp1h = usePair and sh1h ? f_recP(ps1h, "1H") : ""
-rpCh = usePair and tf_allowed and chIsBig ? f_recP(psCh, chName) : ""
+rp1w = usePair and sh1w ? f_recP(ps1w, "1W", f_tag(ps1w, qk1w, false)) : ""
+rp1d = usePair and sh1d ? f_recP(ps1d, "1D", f_tag(ps1d, qk1d, false)) : ""
+rp4h = usePair and sh4h ? f_recP(ps4h, "4H", f_tag(ps4h, qk4h, true)) : ""
+rp1h = usePair and sh1h ? f_recP(ps1h, "1H", f_tag(ps1h, qk1h, true)) : ""
+rpCh = usePair and tf_allowed and chIsBig ? f_recP(psCh, chName, f_tag(psCh, qkCh, chIntra)) : ""
 
 d1w = sh1w and f_dot(st1w)
 d1d = sh1d and f_dot(st1d)
