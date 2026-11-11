@@ -1,6 +1,16 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
-// © Ilai - Asset Divergence Detector (PCP / PSP) v5.39
+// © Ilai - Asset Divergence Detector (PCP / PSP) v5.40
 // Pine Script V5
+//
+// v5.40 — one break per timeframe in the line.
+//  Each timeframe showed the triad's newest standing break AND the pair's,
+//  side by side. It now shows exactly one: the triad's and the pair's stacks
+//  are read together, and a setting picks between them —
+//   · "שלישייה קודם" (default): the triad's break whenever one is standing,
+//     the pair's only when the triad has none — the triad is the stronger read.
+//   · "האחרונה שנוצרה": whichever was born last, triad or pair.
+//  Take that break out and the next survivor comes back, exactly as before.
+//  The ◦ of a candle waiting on its verdict still rides beside it.
 //
 // v5.39 — each break in the line says when its swing candle was born.
 //  "4H ▼ NQ ES 14:00 Q2": the swing candle's open in New York time, and the
@@ -457,7 +467,7 @@ i_col_pcp  = input.color(color.new(#ffd54f, 80), title="גוון נרות PCP", 
 
 grp_mtf    = "═══  מסגרות זמן גבוהות  ═══"
 i_mtf_on   = input.bool(true, title="הצג שורת שבירות",
-     tooltip="שורה אחת בפינה: השבירה העומדת בכל מסגרת, והשמות הם מי שעדיין מגן עליה.\nלידה ◦ עם שם המסגרת — נר שנסגר עם דיברגנס ומחכה לסגירה הבאה.\nאחריהן תא בצבע הזוג — שבירה של 3–4. השמות בו אף פעם לא כוללים את 1 או 2. גם לזוג יש ◦ משלו, עם השמות של 3 ו-4.\nמוצגות רק מסגרות גבוהות ממסגרת הגרף או שוות לה.",
+     tooltip="שורה אחת בפינה: השבירה העומדת בכל מסגרת, והשמות הם מי שעדיין מגן עליה.\nלידה ◦ עם שם המסגרת — נר שנסגר עם דיברגנס ומחכה לסגירה הבאה.\nשבירה אחת לכל מסגרת — של השלישייה או של הזוג 3–4, לפי ההגדרה למטה. שבירה של הזוג בצבע הזוג, והשמות בה אף פעם לא כוללים את 1 או 2. גם לזוג יש ◦ משלו, עם השמות של 3 ו-4.\nמוצגות רק מסגרות גבוהות ממסגרת הגרף או שוות לה.",
      group=grp_mtf)
 i_mtf_v    = input.string("למטה", title="גובה השורה",
      options=["למעלה", "באמצע", "למטה"], group=grp_mtf)
@@ -465,6 +475,10 @@ i_mtf_h    = input.string("שמאל", title="צד השורה",
      options=["שמאל", "מרכז", "ימין"], group=grp_mtf)
 i_mtf_pad  = input.int(0, title="הרחקת השורה מהקצה (שורות)", minval=0, maxval=12,
      tooltip="מוסיף שורות ריקות בין השורה לקצה הגרף, כדי להרים אותה מעל שורה של אינדיקטור אחר שיושב באותה פינה.",
+     group=grp_mtf)
+i_mtf_pick = input.string("שלישייה קודם", title="איזו שבירה להציג בכל מסגרת",
+     options=["שלישייה קודם", "האחרונה שנוצרה"],
+     tooltip="בכל מסגרת מוצגת שבירה אחת בלבד.\nשלישייה קודם: השבירה של 1–2–3 כשיש כזו, ושל הזוג 3–4 רק כשאין.\nהאחרונה שנוצרה: מה שנולד אחרון — שלישייה או זוג.\nכשהיא נלקחת או נגמר לה המיכל — חוזרת הקודמת, אם עדיין חיה.",
      group=grp_mtf)
 i_mtf_tm   = input.bool(true, title="שעה ו-Q ליד כל שבירה",
      tooltip="שעת הפתיחה של נר הסווינג (שעון ניו יורק; ביומי ובשבועי — תאריך), ואיזה רבע של המיכל שלו. רבע נכתב רק ל-Q2 עד Q4 — רבע ראשון וזמן חסום כבר צבועים בצבע משלהם.",
@@ -1606,8 +1620,8 @@ if barstate.islast
 //  THE LINE
 //
 //  Order:  1W · 1D · 4H · 1H · [your chart, only if it is 1H or higher]
-//  Per timeframe: the triad's break, its ◦ if one is waiting, and the pair's
-//  break in the pair colour. Cells pack left, so gaps close up.
+//  Per timeframe: ONE break — the triad's or the pair's, by the setting — and
+//  the ◦ of a candle waiting on its verdict. Cells pack left.
 //
 //  A timeframe BELOW the chart's is left out: stepping it through history
 //  would sample it once per chart bar, skipping whole bars of it. A timeframe
@@ -1640,51 +1654,20 @@ f_tag(MtfSt s, int k, bool intra) =>
             tg := tg + " Q" + str.tostring(q)
     tg
 
-// The triad's cell: a standing break, or — with nothing standing — the ◦ of
-// a bar that closed with a divergence and is waiting on its swing verdict.
-f_rec(MtfSt s, string nm, string tg) =>
-    s.live ? nm + " " + f_arrow(s) + " " + s.who + tg : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
-
-// The pair's cell: a standing break, or — with nothing standing — its ◦.
-f_recP(MtfSt s, string nm, string tg) =>
-    s.live ? nm + " " + f_arrow(s) + " " + s.who + tg : i_show_pending and s.pndOn ? nm + " ◦ " + s.pndWho : ""
-
 chIntra = chartSec < timeframe.in_seconds("D")
-
-// A ◦ that needs its own cell: a break on display AND a new candle waiting.
-f_dot(MtfSt s) =>
-    i_show_pending and s.live and s.pndOn
 
 // First quarter / blocked wins over every other colour — when it is coloured.
 f_col(MtfSt s) =>
     s.live ? (s.q1 and q1Col ? i_col_q1 : s.pair ? i_col_pair : s.weak ? i_col_weak : s.dir < 0 ? i_col_bear : i_col_bull) : i_col_pend
 
-r1w = sh1w ? f_rec(st1w, "1W", f_tag(st1w, qk1w, false)) : ""
-r1d = sh1d ? f_rec(st1d, "1D", f_tag(st1d, qk1d, false)) : ""
-r4h = sh4h ? f_rec(st4h, "4H", f_tag(st4h, qk4h, true)) : ""
-r1h = sh1h ? f_rec(st1h, "1H", f_tag(st1h, qk1h, true)) : ""
-rCh = tf_allowed and chIsBig ? f_rec(stCh, chName, f_tag(stCh, qkCh, chIntra)) : ""
+// Which one break a timeframe shows: 1 the triad's, 2 the pair's, 0 none.
+f_pick(MtfSt t, MtfSt p) =>
+    tl = t.live
+    pl = usePair and p.live
+    tl and pl ? (i_mtf_pick == "האחרונה שנוצרה" and nz(p.born) > nz(t.born) ? 2 : 1) : tl ? 1 : pl ? 2 : 0
 
-rp1w = usePair and sh1w ? f_recP(ps1w, "1W", f_tag(ps1w, qk1w, false)) : ""
-rp1d = usePair and sh1d ? f_recP(ps1d, "1D", f_tag(ps1d, qk1d, false)) : ""
-rp4h = usePair and sh4h ? f_recP(ps4h, "4H", f_tag(ps4h, qk4h, true)) : ""
-rp1h = usePair and sh1h ? f_recP(ps1h, "1H", f_tag(ps1h, qk1h, true)) : ""
-rpCh = usePair and tf_allowed and chIsBig ? f_recP(psCh, chName, f_tag(psCh, qkCh, chIntra)) : ""
-
-d1w = sh1w and f_dot(st1w)
-d1d = sh1d and f_dot(st1d)
-d4h = sh4h and f_dot(st4h)
-d1h = sh1h and f_dot(st1h)
-dCh = tf_allowed and chIsBig and f_dot(stCh)
-
-// The pair's ◦ beside a standing pair break — named, so it cannot be read as
-// the triad's.
+// The pair's ◦ is named, so it cannot be read as the triad's.
 pairNm = nmY + "/" + nmR
-dp1w = usePair and sh1w and f_dot(ps1w)
-dp1d = usePair and sh1d and f_dot(ps1d)
-dp4h = usePair and sh4h and f_dot(ps4h)
-dp1h = usePair and sh1h and f_dot(ps1h)
-dpCh = usePair and tf_allowed and chIsBig and f_dot(psCh)
 
 // ── the fast heads-up ──
 //  Deliberately NOT the carried-state engine. A PSP is a function of three
@@ -1823,57 +1806,37 @@ f_put(int col, string tx, color c) =>
     table.cell(mtfTbl, col, mtfRow, tx, text_color = c, text_size = size.tiny, bgcolor = c_clear)
     col + 1
 
+// One timeframe: its one break, then the ◦ of a candle waiting on its verdict
+// — the triad's and the pair's. Beside a break the ◦ carries only the
+// timeframe ("◦4H", "◦4H YM/RTY"); alone it carries the names.
+f_tf(int c0, bool on, MtfSt t, MtfSt p, string nm, int k, bool intra) =>
+    col = c0
+    if on
+        w = f_pick(t, p)
+        if w == 1
+            col := f_put(col, nm + " " + f_arrow(t) + " " + t.who + f_tag(t, k, intra), f_col(t))
+        else if w == 2
+            col := f_put(col, nm + " " + f_arrow(p) + " " + p.who + f_tag(p, k, intra), f_col(p))
+        if i_show_pending and t.pndOn
+            col := f_put(col, w > 0 ? "◦" + nm : nm + " ◦ " + t.pndWho, i_col_pend)
+        if i_show_pending and usePair and p.pndOn
+            col := f_put(col, w > 0 ? "◦" + nm + " " + pairNm : nm + " ◦ " + p.pndWho, i_col_pend)
+    col
+
 if barstate.islast and i_mtf_on
     if i_mtf_pad > 0
         for k = 0 to i_mtf_pad - 1
             table.cell(mtfTbl, 0, mtfUp ? k : 1 + k, " ",
                  text_size = size.tiny, bgcolor = c_clear)
 
-    anything = r1w != "" or r1d != "" or r4h != "" or r1h != "" or rCh != "" or rp1w != "" or rp1d != "" or rp4h != "" or rp1h != "" or rpCh != ""
-    table.cell(mtfTbl, 0, mtfRow, anything ? "ADI" : "", text_color = i_col_neut,
-         text_size = size.tiny, bgcolor = c_clear)
-
     col = 1
-    if r1w != ""
-        col := f_put(col, r1w, f_col(st1w))
-        if d1w
-            col := f_put(col, "◦1W", i_col_pend)
-    if rp1w != ""
-        col := f_put(col, rp1w, f_col(ps1w))
-        if dp1w
-            col := f_put(col, "◦1W " + pairNm, i_col_pend)
-    if r1d != ""
-        col := f_put(col, r1d, f_col(st1d))
-        if d1d
-            col := f_put(col, "◦1D", i_col_pend)
-    if rp1d != ""
-        col := f_put(col, rp1d, f_col(ps1d))
-        if dp1d
-            col := f_put(col, "◦1D " + pairNm, i_col_pend)
-    if r4h != ""
-        col := f_put(col, r4h, f_col(st4h))
-        if d4h
-            col := f_put(col, "◦4H", i_col_pend)
-    if rp4h != ""
-        col := f_put(col, rp4h, f_col(ps4h))
-        if dp4h
-            col := f_put(col, "◦4H " + pairNm, i_col_pend)
-    if r1h != ""
-        col := f_put(col, r1h, f_col(st1h))
-        if d1h
-            col := f_put(col, "◦1H", i_col_pend)
-    if rp1h != ""
-        col := f_put(col, rp1h, f_col(ps1h))
-        if dp1h
-            col := f_put(col, "◦1H " + pairNm, i_col_pend)
-    if rCh != ""
-        col := f_put(col, rCh, f_col(stCh))
-        if dCh
-            col := f_put(col, "◦" + chName, i_col_pend)
-    if rpCh != ""
-        col := f_put(col, rpCh, f_col(psCh))
-        if dpCh
-            col := f_put(col, "◦" + chName + " " + pairNm, i_col_pend)
+    col := f_tf(col, sh1w, st1w, ps1w, "1W", qk1w, false)
+    col := f_tf(col, sh1d, st1d, ps1d, "1D", qk1d, false)
+    col := f_tf(col, sh4h, st4h, ps4h, "4H", qk4h, true)
+    col := f_tf(col, sh1h, st1h, ps1h, "1H", qk1h, true)
+    col := f_tf(col, tf_allowed and chIsBig, stCh, psCh, chName, qkCh, chIntra)
+    table.cell(mtfTbl, 0, mtfRow, col > 1 ? "ADI" : "", text_color = i_col_neut,
+         text_size = size.tiny, bgcolor = c_clear)
     if col <= 21
         for k = col to 21
             table.cell(mtfTbl, k, mtfRow, "", bgcolor = c_clear)
